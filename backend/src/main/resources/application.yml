@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: ikgeoljune-backend
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ikgeoljune
+    username: ikgeoljune
+    password: ikgeoljune
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update   # 팀 개발 단계: update / 운영 전환 시 validate + Flyway 권장
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: gpt-4o-mini
+
+jwt:
+  # 운영 배포 전 반드시 JWT_SECRET 환경변수로 교체 (최소 256bit/32byte 이상 권장)
+  secret: ${JWT_SECRET:ikgeoljune-dev-only-secret-change-me-please-32bytes-min}
+  expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+
+server:
+  port: 8080
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
