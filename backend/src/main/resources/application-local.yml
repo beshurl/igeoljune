@@ -1,0 +1,18 @@
+# PostgreSQL 없이 바로 띄우는 로컬 개발 프로필.
+#   ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+# 인메모리 H2 라서 서버를 내리면 데이터가 사라진다. 스키마 검증·FE 연동용.
+spring:
+  # 인메모리 H2 라 매번 새로 만든다. PostgreSQL 용 마이그레이션은 돌리지 않는다.
+  flyway:
+    enabled: false
+
+  datasource:
+    url: jdbc:h2:mem:ikgeoljune;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false

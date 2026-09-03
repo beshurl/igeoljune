@@ -1,0 +1,17 @@
+# 테스트 전용 오버라이드. 기본 application.yml 위에 얹힌다.
+spring:
+  flyway:
+    enabled: false
+
+  datasource:
+    url: jdbc:h2:mem:ikgeoljune;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect

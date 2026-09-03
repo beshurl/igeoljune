@@ -1,50 +1,68 @@
 package com.skala.ikgeoljune.domain;
 
 import jakarta.persistence.*;
-import lombok.*;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-
-// SCR-RECIPIENT-001 · UC2 추천 대상(비공개 프로필)
 @Entity
-@Table(name = "recipients")
 @Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
-public class Recipient {
+@Table(name = "recipient", indexes = @Index(name = "idx_recipient_user_id", columnList = "user_id"))
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+public class Recipient extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "recipient_id")
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @Column(nullable = false)
+    @Column(name = "name", nullable = false, length = 100)
     private String name;
 
+    /** 예: FRIEND, FAMILY, COLLEAGUE — 명세서에 값 목록이 없어 문자열로 유지한다. */
+    @Column(name = "relationship", nullable = false, length = 50)
     private String relationship;
 
-    private Integer age;
+    /** 예: LATE_20S */
+    @Column(name = "age_group", nullable = false, length = 30)
+    private String ageGroup;
 
+    /** 예: MALE, FEMALE */
+    @Column(name = "gender", nullable = false, length = 20)
     private String gender;
 
-    @Column(name = "upcoming_anniversary")
-    private LocalDate upcomingAnniversary;
+    @Column(name = "job", length = 100)
+    private String job;
 
-    // UC3 이전 선물·제외 유형 (쉼표 구분 저장, 필요 시 별도 테이블로 정규화)
-    @Column(name = "exclude_tags")
-    private String excludeTags;
+    private Recipient(User user, String name, String relationship, String ageGroup, String gender, String job) {
+        this.user = user;
+        this.name = name;
+        this.relationship = relationship;
+        this.ageGroup = ageGroup;
+        this.gender = gender;
+        this.job = job;
+    }
 
-    @Column(name = "created_at")
-    private LocalDateTime createdAt;
+    public static Recipient create(User user, String name, String relationship,
+                                   String ageGroup, String gender, String job) {
+        return new Recipient(user, name, relationship, ageGroup, gender, job);
+    }
 
-    @PrePersist
-    void onCreate() {
-        this.createdAt = LocalDateTime.now();
+    /** RECIPIENT-004: 보낸 필드만 수정한다. */
+    public void update(String name, String relationship, String ageGroup, String gender, String job) {
+        if (name != null) this.name = name;
+        if (relationship != null) this.relationship = relationship;
+        if (ageGroup != null) this.ageGroup = ageGroup;
+        if (gender != null) this.gender = gender;
+        if (job != null) this.job = job;
+        touch();
+    }
+
+    public boolean isOwnedBy(Long userId) {
+        return this.user.getId().equals(userId);
     }
 }

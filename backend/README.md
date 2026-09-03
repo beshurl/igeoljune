@@ -1,61 +1,193 @@
-# 이걸주네? — Backend
+# 이걸주네? Backend
 
-Spring Boot 3 (Layered Architecture) + PostgreSQL + Spring AI (ChatClient)
+AI 맞춤형 선물 추천 서비스 백엔드. [API 명세서](https://app.notion.com/p/API-3cf79cc0631e80319261ee2251caeb32) v1 기준으로 구현했다.
 
-## 실행 (로컬 PostgreSQL 필요 — `database/` 폴더의 docker-compose 참고)
+## 기술 스택
+
+| 항목 | 값 |
+|---|---|
+| Java | 21 |
+| Framework | Spring Boot 3.5.16 (Web, Validation, Security, Data JPA) |
+| DB | PostgreSQL (테스트는 H2) |
+| 인증 | JWT (jjwt 0.12.6) + BCrypt |
+| AI | Mock 구현 (`app.ai.provider=mock`) |
+| 문서 | springdoc-openapi (`/swagger-ui.html`) |
+
+## 실행
+
+### 1) 빠른 실행 — PostgreSQL 없이 (권장: FE 연동·기능 확인용)
 
 ```bash
-export OPENAI_API_KEY=sk-...   # Spring AI ChatClient용 (없으면 추천 요청 시 FAILED 상태 반환)
-mvn spring-boot:run
-# (Maven Wrapper가 필요하면 최초 1회: mvn -N wrapper:wrapper 실행 후 ./mvnw 사용)
+./mvnw spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
-기본 포트: `8080`, API prefix: `/api`, Swagger UI: `/swagger-ui.html`
+인메모리 H2 로 뜬다. 서버를 내리면 데이터가 사라지지만 API 는 전부 동일하게 동작한다.
 
-> 이 컨테이너는 외부 네트워크가 제한되어 있어 `mvn`으로 의존성을 직접 내려받아 빌드 검증을 하지 못했습니다.
-> 팀원 로컬 환경(정상 인터넷)에서 `./mvnw clean install`로 첫 빌드를 검증해 주세요.
+### 2) PostgreSQL 로 실행
 
-## 레이어드 아키텍처 폴더 구조
+먼저 DB 와 롤을 만들어야 한다. 없으면
+`FATAL: password authentication failed for user "ikgeoljune"` 로 부팅이 실패한다.
 
-```
-src/main/java/com/skala/ikgeoljune/
-  controller/   REST API 엔드포인트 (요청/응답만 담당)
-  service/      비즈니스 로직 — AiGiftAdvisor가 AI 확장 지점(UC8)
-  repository/   Spring Data JPA 리포지토리
-  domain/       JPA 엔티티 (테이블 = snake_case)
-  dto/
-    request/    API 요청 바디
-    response/   API 응답 바디
-  config/       WebConfig(CORS), AiConfig(ChatClient 빈)
-  exception/    공통 예외 처리
+```bash
+psql -d postgres -c "CREATE ROLE ikgeoljune WITH LOGIN PASSWORD 'ikgeoljune';"
+psql -d postgres -c "CREATE DATABASE ikgeoljune OWNER ikgeoljune;"
 ```
 
-## 대표 흐름 (UC7 → UC8 → UC9) 코드 위치
+> Homebrew 설치본은 로컬 trust 인증이라 현재 계정으로 바로 붙는다.
+> EDB 인스톨러판을 쓴다면 `-U postgres -h localhost` 를 붙이고 설치 시 정한 비밀번호를 입력해야 한다.
+> 두 개를 같이 깔면 5432 포트가 충돌하니 하나만 띄울 것.
 
-1. `GiftConditionController` → `GiftRecommendationService.createCondition` (UC7)
-2. `RecommendationController.requestRecommendation` → `GiftRecommendationService.requestRecommendation`
-   → **`AiGiftAdvisor.recommend`** (UC8, AI 확장 지점 — 시스템/유저 프롬프트와 JSON 스키마가 이 클래스에 있음)
-3. `RecommendationController.get` (UC9)
-4. `RecommendationController.feedback` / `reRecommend` (UC10·UC11·UC12)
-5. `RecommendationController.confirm` → `GiftHistoryService.confirm` (UC13)
+```bash
+./mvnw spring-boot:run
+```
 
-`Recommendation.status`는 `PENDING/COMPLETED/FAILED`로 AI 비동기 파이프라인을 표현합니다 (제출가이드 §2 권장 필드).
+접속 정보가 다르면 환경변수로 덮어쓴다.
 
-## API ↔ 화면(SCR) ↔ Use-Case 매핑
+```bash
+DB_URL=jdbc:postgresql://localhost:5432/mydb DB_USERNAME=me DB_PASSWORD=secret ./mvnw spring-boot:run
+```
 
-| Controller | SCR ID | UC |
+### 테스트
+
+```bash
+./mvnw test
+```
+
+## DB 마이그레이션
+
+스키마는 **Flyway** 가 소유한다 (`src/main/resources/db/migration`).
+Hibernate 는 `ddl-auto: validate` 로 검증만 하며 스키마를 바꾸지 않는다.
+
+- 엔티티를 변경했다면 반드시 새 마이그레이션(`V2__*.sql`, `V3__*.sql` ...)을 추가한다.
+- `local` 프로필과 테스트는 인메모리 H2 라 Flyway 를 끄고 `create-drop` 을 쓴다.
+
+### 기존 DB 에서 업그레이드
+
+Google OAuth 시절 스키마(`users.google_sub`, `recipients` 등)가 남아 있는 DB 로 기동하면
+Flyway 가 아래 메시지와 함께 **실행을 거부한다**. 조용히 깨지지 않게 막아 두었다.
+
+```
+Found non-empty schema(s) "public" but no schema history table.
+```
+
+이전 스키마에서 자동 업그레이드는 제공하지 않는다.
+OAuth 로 가입한 계정에는 `password_hash` 로 채울 값이 없어 backfill 이 불가능하기 때문이다.
+아직 배포 전 단계이므로 **DB 재생성이 계약**이다.
+
+```bash
+psql -d postgres -c "DROP DATABASE ikgeoljune;"
+```
+
+```bash
+psql -d postgres -c "CREATE DATABASE ikgeoljune OWNER ikgeoljune;"
+```
+
+운영 데이터가 생긴 뒤라면 이 정책을 바꿔야 하며, 그때는 rename/backfill/drop 순서를 보장하는
+마이그레이션을 `V2__` 로 추가해야 한다.
+
+기본 접속 정보는 `src/main/resources/application.yml` 에 있고, 모두 환경변수로 덮어쓸 수 있다.
+
+| 환경변수 | 기본값 | 설명 |
 |---|---|---|
-| AuthController | SCR-AUTH-001 | UC1 |
-| RecipientController | SCR-RECIPIENT-001 | UC2 |
-| GiftConditionController | SCR-GIFT-001 | UC3·UC7 |
-| RecommendationController | SCR-AI-001 / SCR-AI-002 | UC8~UC12 |
-| GiftHistoryController | SCR-HISTORY-001 | UC13·UC14 |
+| `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | localhost:5432/ikgeoljune | PostgreSQL 접속 |
+| `JWT_SECRET` | 개발용 기본값 | **운영 배포 전 반드시 교체** (HS256, 32byte 이상) |
+| `JWT_EXPIRES_IN` | 3600 | access token 만료(초). AUTH-002 의 `expiresIn` 과 같은 값 |
+| `CORS_ALLOWED_ORIGINS` | localhost:5173, localhost:3000 | 프론트 개발 서버 |
+| `AI_PROVIDER` | mock | AI 구현 선택 |
+| `AI_MOCK_LATENCY_MS` | 800 | Mock AI 가 흉내내는 처리 지연 |
 
-## 다음 할 일 (팀원 배분용)
+Swagger UI: http://localhost:8080/swagger-ui.html
 
-- [ ] Google OAuth ID Token 실제 검증 (`AuthService`)
-- [ ] JWT 발급/검증 (`Spring Security` 추가 권장)
-- [ ] `RecipientController`가 로그인 사용자 기준으로 동작하도록 인증 연동
-- [ ] `GiftHistoryController` 응답을 엔티티 대신 DTO로 변환
-- [ ] Calendar/카카오톡 컨트롤러·서비스 (선택 흐름) 구현
-- [ ] Flyway로 `ddl-auto: update` 대체 (운영 전환 시)
+## 패키지 구조
+
+```
+com.skala.ikgeoljune
+├── common        ErrorCode / ApiException / ErrorResponse / ListResponse / GlobalExceptionHandler
+├── config        SecurityConfig, AsyncConfig, OpenApiConfig, TimeZoneConfig
+├── security      JwtTokenProvider, JwtAuthenticationFilter, AuthUser, @CurrentUser
+├── domain        엔티티 8개 + Enum 5개 (§10)
+├── repository    Spring Data JPA
+├── dto           요청·응답 record (camelCase)
+├── service       도메인별 서비스 + OwnershipValidator + 비동기 추천 처리
+├── ai            GiftAiClient 인터페이스와 콘텍스트 타입
+│   └── mock      MockGiftAiClient, GiftCatalog
+└── controller    REST 컨트롤러 (모두 /api/v1)
+```
+
+## 계약 문서 대응
+
+구현 기준은 **`DB.dbml`(스키마)** 과 **`API.yml`(REST 계약)** 두 파일이며,
+`docs/contract/` 에서 함께 버전 관리한다. 어긋나는 항목과 갱신 필요 사항은 `docs/contract/README.md` 참고.
+
+- 스키마: `V1__init.sql` 이 `DB.dbml` 의 테이블·인덱스·CHECK 제약·FK 삭제 규칙을 그대로 옮긴 것
+- 오류 코드: `API.yml components/responses` 의 `VALIDATION_ERROR`, `UNAUTHORIZED`, `RESOURCE_FORBIDDEN`,
+  `RESOURCE_NOT_FOUND`, `RESOURCE_CONFLICT`, `AI_RESULT_INVALID` 만 사용한다.
+  구체적인 상황은 `message` 로 전달하고 `code` 를 세분화하지 않는다.
+- 요청 검증: `minProperties: 1`(빈 PATCH 본문 거부), `additionalProperties: false`(모르는 필드 거부)를 실제로 강제한다
+- 목록: `{ items, totalCount }`. `GET /recipients` 는 `page`(≥0), `size`(1~100) 를 받는다
+- 일시: `Asia/Seoul` 기준 ISO 8601 (`2026-09-03T14:30:00+09:00`)
+- 소유권 검증: `OwnershipValidator` 가 candidate → recommendation → condition → recipient → user 경로를 확인한다.
+  없으면 404, 남의 리소스면 403
+
+### AI 추천 흐름
+
+MVP 계약은 **동기 처리**다. Mock 추천을 요청 스레드 안에서 실행하고
+**201 Created** 로 완성된 후보를 즉시 반환한다. 프론트는 폴링하지 않는다.
+
+```
+POST /api/v1/gift-conditions/{conditionId}/recommendations   → 201 { candidates: [...] }
+                                                                Location: /api/v1/recommendations/10
+GET  /api/v1/recommendations/{recommendationId}              → 200 { candidates: [...] }
+```
+
+후보를 만들지 못하면 실행 기록을 남기지 않고 **422 `AI_RESULT_INVALID`** 를 반환한다.
+실제 LLM 연동으로 응답 시간이 길어지면 그때 비동기 + 폴링으로 전환하고,
+`recommendations.status` / `failure_code` / `failure_message` 컬럼을 그 용도로 사용한다.
+
+### 최종 선물 선택
+
+추천 후보 하나를 최종 선물로 선택하면 `selectedAt` 이 기록된다. 한 추천 실행 안에서 최대 1건이다.
+
+```
+PUT    /api/v1/recommendation-candidates/{candidateId}/selection   → 200 (후보 객체)
+GET    /api/v1/recommendation-candidates/{candidateId}/selection   → 200
+DELETE /api/v1/recommendation-candidates/{candidateId}/selection   → 204
+```
+
+### Mock AI 교체 방법
+
+AI 연동 경계는 `com.skala.ikgeoljune.ai.GiftAiClient` 하나다.
+
+```java
+public interface GiftAiClient {
+    List<AiExtractedPreference> extractPreferences(AiKakaoAnalysisContext context);  // KAKAO-001
+    List<AiGiftCandidate> recommendGifts(AiRecommendationContext context);           // RECOMMEND-001/004
+}
+```
+
+`MockGiftAiClient` 는 `@ConditionalOnProperty(app.ai.provider=mock)` 으로 등록되어 있고,
+카탈로그 기반 규칙으로 아래를 실제로 반영한다.
+
+- 예상 가격은 **카탈로그 실제 가격** 을 그대로 사용한다. 예산으로 보정하지 않는다
+- 예산 내 후보를 우선하되 예산 밖 대안도 함께 제안한다(기획의 "예산보다 낮거나 높은 대안")
+- `structured_preference` 의 관심사·선호 속성 매칭, `WISH_ITEM` 최우선 가점
+- `DISLIKED_CATEGORY` 취향과 `avoidGiftNote` 키워드에 걸리는 상품 제외
+- `previous_gifts` 와 같은 상품 제외
+- 재추천 시 이전 추천에서 `DISLIKE` 한 상품과 해당 사유의 카테고리 제외
+
+실제 LLM 으로 바꿀 때는 `GiftAiClient` 를 구현한 빈을 추가하고 `AI_PROVIDER` 값만 바꾸면 되며,
+서비스·컨트롤러 코드는 건드릴 필요가 없다.
+
+## 팀 확인이 필요한 지점
+
+1. **Notion 명세서와 `API.yml` 불일치** — 후보 순위 필드가 Notion 은 `recommendation_rank`, `API.yml` 은 `recommendRank` 다.
+   구현은 `API.yml`(및 `DB.dbml` 의 `recommend_rank` 컬럼)을 따랐다. Notion 명세서 갱신이 필요하다.
+2. **오류 코드 세분화 불가** — `API.yml` 이 `RESOURCE_CONFLICT` 하나로 409 를 표현하므로
+   이메일 중복과 취향 중복을 `code` 로 구분할 수 없다. 현재는 `message` 로만 구분한다.
+   프론트에서 분기가 필요하면 계약에 코드 추가가 필요하다.
+3. **`Idempotency-Key` 헤더 미구현** — `API.yml` 에 "서버 지원 여부를 구현 전에 확정합니다" 로 적혀 있어 보류했다.
+   받아만 두고 무시하면 클라이언트가 중복 방지를 신뢰하게 되므로 일부러 구현하지 않았다.
+4. **추천 조건 목록 조회 API 부재** — `API.yml` 에 `GET /recipients/{recipientId}/gift-conditions` 가 없다.
+   프론트에서 필요하면 계약에 추가해야 한다.
+5. **`relationship` / `ageGroup` / `gender` / `occasionType` / `giftCategory`** — 두 문서 모두 값 목록이 없어 문자열로 두었다.
+6. **카카오톡 파일 제한** — 5MB / `.txt`, `.csv` 로 잡아 두었다(`app.kakao-analysis.*`).
