@@ -189,7 +189,15 @@ const routes = [
     return g;
   }],
   ["PATCH", /^\/previous-gifts\/(\d+)$/, (_m, b) => ({ previousGiftId: +_m[1], ...b })],
-  ["DELETE", /^\/previous-gifts\/(\d+)$/, () => ({ __status: 204 })],
+  ["DELETE", /^\/previous-gifts\/(\d+)$/, (m) => {
+    const id = +m[1];
+    for (const k of Object.keys(state.previousGifts)) {
+      state.previousGifts[k] = (state.previousGifts[k] || []).filter(
+        (g) => g.previousGiftId !== id
+      );
+    }
+    return { __status: 204 };
+  }],
 
   // ---- 추천 조건 ----
   ["POST", /^\/recipients\/(\d+)\/gift-conditions$/, (m, b) => {
@@ -252,6 +260,71 @@ const routes = [
   }],
 ];
 
+const STATUS_TEXT = {
+  200: "OK",
+  201: "Created",
+  202: "Accepted",
+  204: "No Content",
+  400: "Bad Request",
+  401: "Unauthorized",
+  403: "Forbidden",
+  404: "Not Found",
+  409: "Conflict",
+  422: "Unprocessable Entity",
+  500: "Internal Server Error",
+};
+
+const ERROR_CODE = {
+  400: "VALIDATION_ERROR",
+  401: "UNAUTHORIZED",
+  403: "RESOURCE_FORBIDDEN",
+  404: "RESOURCE_NOT_FOUND",
+  409: "RESOURCE_CONFLICT",
+  422: "AI_RESULT_INVALID",
+};
+const ERROR_MESSAGE = {
+  401: "인증이 필요합니다.",
+  403: "접근할 수 없는 리소스입니다.",
+  404: "요청한 리소스를 찾을 수 없습니다.",
+  409: "현재 상태에서는 요청을 처리할 수 없습니다.",
+  422: "AI 결과를 처리하지 못했습니다.",
+};
+
+// axios 기본 어댑터의 settle 동작 재현: validateStatus 통과 못 하면 AxiosError 로 reject.
+// 오류 상태인데 본문이 없으면 API 명세의 ErrorResponse 형태로 채운다.
+function settle(status, data, config) {
+  const ok = config.validateStatus
+    ? config.validateStatus(status)
+    : status >= 200 && status < 300;
+
+  let body = status === 204 ? "" : data;
+  if (!ok && (!data || !data.code)) {
+    body = {
+      code: ERROR_CODE[status] || "ERROR",
+      message: ERROR_MESSAGE[status] || `요청을 처리할 수 없습니다. (${status})`,
+      fieldErrors: [],
+    };
+  }
+
+  const response = {
+    data: body,
+    status,
+    statusText: STATUS_TEXT[status] || "",
+    headers: {},
+    config,
+    request: {},
+  };
+  if (ok) return response;
+
+  const error = new Error(`Request failed with status code ${status}`);
+  error.config = config;
+  error.request = {};
+  error.response = response;
+  error.isAxiosError = true;
+  error.status = status;
+  return Promise.reject(error);
+}
+
 export default async function mockAdapter(config) {
   await delay();
   const method = (config.method || "get").toUpperCase();
@@ -273,22 +346,12 @@ export default async function mockAdapter(config) {
     if (!match) continue;
     const result = handler(match, body || {}) ?? {};
     const { __status, ...data } = result;
-    return {
-      data: __status === 204 ? "" : data,
-      status: __status || 200,
-      statusText: "OK",
-      headers: {},
-      config,
-      request: {},
-    };
+    return settle(__status || 200, data, config);
   }
 
-  return {
-    data: { code: "MOCK_NOT_FOUND", message: `mock route not found: ${method} ${url}`, fieldErrors: [] },
-    status: 404,
-    statusText: "Not Found",
-    headers: {},
-    config,
-    request: {},
-  };
+  return settle(
+    404,
+    { code: "MOCK_NOT_FOUND", message: `mock route not found: ${method} ${url}`, fieldErrors: [] },
+    config
+  );
 }
