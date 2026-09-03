@@ -53,5 +53,6 @@ public class PreviousGift extends BaseTimeEntity {
         if (giftCategory != null) this.giftCategory = giftCategory;
         if (giftedAt != null) this.giftedAt = giftedAt;
         if (note != null) this.note = note;
+        touch();
     }
 }

@@ -52,5 +52,6 @@ public class Feedback extends BaseTimeEntity {
     public void apply(FeedbackType feedbackType, DislikeReason dislikeReason) {
         this.feedbackType = feedbackType;
         this.dislikeReason = (feedbackType == FeedbackType.DISLIKE) ? dislikeReason : null;
+        touch();
     }
 }

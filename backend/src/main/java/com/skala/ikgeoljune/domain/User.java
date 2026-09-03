@@ -42,5 +42,6 @@ public class User extends BaseTimeEntity {
     /** USER-002 내 이름 수정 */
     public void changeName(String name) {
         this.name = name;
+        touch();
     }
 }

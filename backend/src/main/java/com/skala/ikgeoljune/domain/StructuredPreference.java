@@ -59,5 +59,6 @@ public class StructuredPreference extends BaseTimeEntity {
     public void update(PreferenceType preferenceType, String preferenceValue) {
         if (preferenceType != null) this.preferenceType = preferenceType;
         if (preferenceValue != null) this.preferenceValue = preferenceValue;
+        touch();
     }
 }

@@ -59,6 +59,7 @@ public class Recipient extends BaseTimeEntity {
         if (ageGroup != null) this.ageGroup = ageGroup;
         if (gender != null) this.gender = gender;
         if (job != null) this.job = job;
+        touch();
     }
 
     public boolean isOwnedBy(Long userId) {
