@@ -290,6 +290,76 @@ class GiftRecommendationFlowTest {
                 .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
     }
 
+    @Test
+    @DisplayName("PATCH 로 빈 문자열을 보내면 생성 요청과 동일하게 거부한다")
+    void patchRejectsBlankRequiredFields() throws Exception {
+        String token = signupAndLogin("blank@example.com", "빈값");
+        long recipientId = createRecipient(token);
+
+        mockMvc.perform(patch("/api/v1/recipients/{id}", recipientId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"   "}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("name"));
+
+        // 필드를 아예 보내지 않는 것은 그대로 허용된다
+        mockMvc.perform(patch("/api/v1/recipients/{id}", recipientId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"job":"백엔드 개발자"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("철수"));
+    }
+
+    @Test
+    @DisplayName("PATCH 응답의 updatedAt 이 저장된 값과 일치한다")
+    void patchResponseCarriesFreshUpdatedAt() throws Exception {
+        String token = signupAndLogin("touch@example.com", "갱신");
+        long recipientId = createRecipient(token);
+
+        JsonNode before = readJson(mockMvc.perform(get("/api/v1/recipients/{id}", recipientId)
+                        .header("Authorization", token))
+                .andReturn());
+
+        JsonNode patched = readJson(mockMvc.perform(patch("/api/v1/recipients/{id}", recipientId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"job":"백엔드 개발자"}
+                                """))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        // 응답이 수정 전 시각 그대로면 안 된다
+        assertThat(patched.get("updatedAt").asText())
+                .isNotEqualTo(before.get("updatedAt").asText());
+
+        // 응답 값과 실제 저장 값이 같아야 한다
+        JsonNode reloaded = readJson(mockMvc.perform(get("/api/v1/recipients/{id}", recipientId)
+                        .header("Authorization", token))
+                .andReturn());
+        assertThat(reloaded.get("updatedAt").asText())
+                .isEqualTo(patched.get("updatedAt").asText());
+    }
+
+    private long createRecipient(String token) throws Exception {
+        JsonNode recipient = readJson(mockMvc.perform(post("/api/v1/recipients")
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"철수","relationship":"FRIEND","ageGroup":"LATE_20S","gender":"MALE"}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn());
+        return recipient.get("recipientId").asLong();
+    }
+
     private String signupAndLogin(String email, String name) throws Exception {
         mockMvc.perform(post("/api/v1/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
