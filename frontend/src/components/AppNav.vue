@@ -166,4 +166,19 @@ function logout() {
   display: flex;
   gap: 8px;
 }
+
+@media (max-width: 640px) {
+  .nav__inner {
+    gap: 12px;
+    padding: 0 16px;
+  }
+  .brand__tag,
+  .nav__uname {
+    display: none;
+  }
+  .nav__link {
+    padding: 8px 10px;
+    font-size: 12.5px;
+  }
+}
 </style>

@@ -6,6 +6,7 @@ const delay = (ms = 240) => new Promise((r) => setTimeout(r, ms));
 
 const state = {
   user: { userId: 1, email: "demo@igeoljune.dev", name: "데모 사용자" },
+  emails: new Set(["demo@igeoljune.dev"]),
   recipients: [
     { recipientId: 1, name: "김지은", relationship: "FRIEND", ageGroup: "LATE_20S", gender: "FEMALE", job: "회사원", createdAt: "2026-09-01T09:00:00+09:00", updatedAt: "2026-09-01T09:00:00+09:00" },
     { recipientId: 2, name: "박서준", relationship: "LOVER", ageGroup: "LATE_20S", gender: "MALE", job: "직장인", createdAt: "2026-09-01T09:00:00+09:00", updatedAt: "2026-09-01T09:00:00+09:00" },
@@ -20,6 +21,19 @@ const state = {
 };
 const nextId = () => ++state.seq;
 const now = () => new Date().toISOString();
+
+// 오류 응답 헬퍼 (API 명세 §1.4 ErrorResponse 형태)
+const err = (status, code, message, fieldErrors = []) => ({
+  __status: status,
+  code,
+  message,
+  fieldErrors,
+});
+
+const prefExists = (rid, type, value) =>
+  (state.preferences[rid] ?? []).some(
+    (p) => p.preferenceType === type && p.preferenceValue === value
+  );
 
 const KAKAO_ITEMS = [
   { preferenceType: "INTEREST", preferenceValue: "홈카페, 러닝" },
@@ -72,33 +86,27 @@ function makeCandidates() {
   ];
 }
 
+// 우리 서비스는 AI 를 Mock 으로 대체 → 처리 중 단계 없이 생성 즉시 SUCCESS + 후보 전체
 function makeRecommendation(conditionId, previousRecommendationId = null) {
   const recommendationId = nextId();
   const rec = {
     recommendationId,
     conditionId,
     previousRecommendationId,
-    status: "PROCESSING",
+    status: "SUCCESS",
     failure: null,
     createdAt: now(),
     updatedAt: now(),
-    candidates: [],
-    _readyAt: Date.now() + 1400, // 이 시각 이후 GET 하면 SUCCESS
+    candidates: makeCandidates(),
   };
   state.recommendations[recommendationId] = rec;
   return rec;
 }
 
 function viewRecommendation(rec) {
-  if (rec.status === "PROCESSING" && Date.now() >= rec._readyAt) {
-    rec.status = "SUCCESS";
-    rec.updatedAt = now();
-    rec.candidates = makeCandidates();
-  }
-  const { _readyAt, ...view } = rec;
   return {
-    ...view,
-    candidates: view.candidates.map((c) => ({
+    ...rec,
+    candidates: rec.candidates.map((c) => ({
       ...c,
       feedback: state.feedbacks[c.candidateId] ?? null,
     })),
@@ -115,12 +123,20 @@ function findCandidate(candidateId) {
 
 const routes = [
   // ---- 인증 ----
-  ["POST", /^\/auth\/signup$/, (_m, b) => ({
-    userId: state.user.userId,
-    email: b.email,
-    name: b.name || "새 사용자",
-    createdAt: now(),
-  })],
+  ["POST", /^\/auth\/signup$/, (_m, b) => {
+    if (!b.email) return err(400, "INVALID_INPUT", "이메일은 필수입니다.", [{ field: "email", reason: "필수" }]);
+    if (state.emails.has(b.email)) {
+      return err(409, "EMAIL_DUPLICATED", "이미 사용 중인 이메일입니다.");
+    }
+    state.emails.add(b.email);
+    return {
+      __status: 201,
+      userId: nextId(),
+      email: b.email,
+      name: b.name || "새 사용자",
+      createdAt: now(),
+    };
+  }],
   ["POST", /^\/auth\/login$/, (_m, b) => {
     state.user = { ...state.user, email: b.email || state.user.email };
     return {
@@ -141,7 +157,7 @@ const routes = [
   ["POST", /^\/recipients$/, (_m, b) => {
     const r = { recipientId: nextId(), ...b, createdAt: now(), updatedAt: now() };
     state.recipients.push(r);
-    return r;
+    return { __status: 201, ...r };
   }],
   ["GET", /^\/recipients\/(\d+)$/, (m) =>
     state.recipients.find((r) => r.recipientId === +m[1]) || { __status: 404 }],
@@ -161,18 +177,31 @@ const routes = [
     return { items: list, totalCount: list.length };
   }],
   ["POST", /^\/recipients\/(\d+)\/preferences$/, (m, b) => {
-    const pref = { preferenceId: nextId(), ...b, sourceType: "DIRECT" };
+    if (prefExists(m[1], b.preferenceType, b.preferenceValue)) {
+      return err(409, "PREFERENCE_DUPLICATED", "이미 등록된 취향입니다.");
+    }
+    const pref = { preferenceId: nextId(), recipientId: +m[1], ...b, sourceType: "DIRECT" };
     (state.preferences[m[1]] ??= []).push(pref);
-    return pref;
+    return { __status: 201, ...pref };
   }],
   ["POST", /^\/recipients\/(\d+)\/preferences\/bulk$/, (m, b) => {
-    const saved = (b.items ?? []).map((it) => ({
+    const items = b.items ?? [];
+    const seen = new Set();
+    for (const it of items) {
+      const key = `${it.preferenceType}::${it.preferenceValue}`;
+      if (seen.has(key) || prefExists(m[1], it.preferenceType, it.preferenceValue)) {
+        return err(409, "PREFERENCE_DUPLICATED", "이미 등록된 취향이 포함되어 있습니다.");
+      }
+      seen.add(key);
+    }
+    const saved = items.map((it) => ({
       preferenceId: nextId(),
+      recipientId: +m[1],
       ...it,
       sourceType: b.sourceType ?? "KAKAO",
     }));
     (state.preferences[m[1]] ??= []).push(...saved);
-    return { items: saved, totalCount: saved.length };
+    return { __status: 201, items: saved, totalCount: saved.length };
   }],
   ["PATCH", /^\/preferences\/(\d+)$/, (_m, b) => ({ preferenceId: +_m[1], ...b })],
   ["DELETE", /^\/preferences\/(\d+)$/, () => ({ __status: 204 })],
@@ -184,9 +213,12 @@ const routes = [
     return { items: list, totalCount: list.length };
   }],
   ["POST", /^\/recipients\/(\d+)\/previous-gifts$/, (m, b) => {
+    if (!b.giftName || !String(b.giftName).trim()) {
+      return err(400, "INVALID_INPUT", "선물 이름은 필수입니다.", [{ field: "giftName", reason: "필수" }]);
+    }
     const g = { previousGiftId: nextId(), recipientId: +m[1], ...b, createdAt: now(), updatedAt: now() };
     (state.previousGifts[m[1]] ??= []).push(g);
-    return g;
+    return { __status: 201, ...g };
   }],
   ["PATCH", /^\/previous-gifts\/(\d+)$/, (_m, b) => ({ previousGiftId: +_m[1], ...b })],
   ["DELETE", /^\/previous-gifts\/(\d+)$/, (m) => {
@@ -201,9 +233,26 @@ const routes = [
 
   // ---- 추천 조건 ----
   ["POST", /^\/recipients\/(\d+)\/gift-conditions$/, (m, b) => {
+    const fe = [];
+    const badMin = b.budgetMin == null || b.budgetMin === "" || Number.isNaN(Number(b.budgetMin));
+    const badMax = b.budgetMax == null || b.budgetMax === "" || Number.isNaN(Number(b.budgetMax));
+    if (badMin) fe.push({ field: "budgetMin", reason: "최소 예산은 필수입니다." });
+    if (badMax) fe.push({ field: "budgetMax", reason: "최대 예산은 필수입니다." });
+    if (!b.occasionType) fe.push({ field: "occasionType", reason: "선물 목적은 필수입니다." });
+    if (fe.length) return err(400, "INVALID_INPUT", "입력값을 확인해 주세요.", fe);
+    if (Number(b.budgetMin) < 0 || Number(b.budgetMax) < 0) {
+      return err(400, "INVALID_INPUT", "예산은 0 이상이어야 합니다.", [
+        { field: "budgetMin", reason: "0 이상" },
+      ]);
+    }
+    if (Number(b.budgetMin) > Number(b.budgetMax)) {
+      return err(400, "INVALID_BUDGET_RANGE", "최소 예산은 최대 예산보다 클 수 없습니다.", [
+        { field: "budgetMax", reason: "최소 예산 이상이어야 합니다." },
+      ]);
+    }
     const c = { conditionId: nextId(), recipientId: +m[1], ...b, createdAt: now() };
     state.conditions[c.conditionId] = c;
-    return c;
+    return { __status: 201, ...c };
   }],
   ["GET", /^\/gift-conditions\/(\d+)$/, (m) => state.conditions[m[1]] || { __status: 404 }],
   ["PATCH", /^\/gift-conditions\/(\d+)$/, (m, b) => {
@@ -211,12 +260,21 @@ const routes = [
     if (c) Object.assign(c, b);
     return c || { __status: 404 };
   }],
-  ["DELETE", /^\/gift-conditions\/(\d+)$/, () => ({ __status: 204 })],
+  ["DELETE", /^\/gift-conditions\/(\d+)$/, (m) => {
+    const cid = +m[1];
+    const hasRec = Object.values(state.recommendations).some((r) => r.conditionId === cid);
+    if (hasRec) {
+      return err(409, "GIFT_CONDITION_HAS_RECOMMENDATIONS", "추천 결과가 있는 조건은 삭제할 수 없습니다.");
+    }
+    delete state.conditions[cid];
+    return { __status: 204 };
+  }],
 
   // ---- AI 추천 ----
   ["POST", /^\/gift-conditions\/(\d+)\/recommendations$/, (m) => {
+    if (!state.conditions[m[1]]) return err(404, "GIFT_CONDITION_NOT_FOUND", "추천 조건을 찾을 수 없습니다.");
     const rec = makeRecommendation(+m[1]);
-    return { __status: 202, ...viewRecommendation(rec) };
+    return { __status: 201, ...viewRecommendation(rec) };
   }],
   ["GET", /^\/gift-conditions\/(\d+)\/recommendations$/, (m) => {
     const list = Object.values(state.recommendations)
@@ -231,12 +289,18 @@ const routes = [
   }],
   ["POST", /^\/recommendations\/(\d+)\/re-recommend$/, (m) => {
     const prev = state.recommendations[m[1]];
-    const rec = makeRecommendation(prev?.conditionId ?? nextId(), +m[1]);
-    return { __status: 202, ...viewRecommendation(rec) };
+    if (!prev) return err(404, "RECOMMENDATION_NOT_FOUND", "추천 결과를 찾을 수 없습니다.");
+    const rec = makeRecommendation(prev.conditionId, +m[1]);
+    return { __status: 201, ...viewRecommendation(rec) };
   }],
 
   // ---- 피드백 ----
   ["PUT", /^\/recommendation-candidates\/(\d+)\/feedback$/, (m, b) => {
+    if (b.feedbackType !== "LIKE" && b.feedbackType !== "DISLIKE") {
+      return err(400, "INVALID_FEEDBACK_TYPE", "피드백 유형이 올바르지 않습니다.", [
+        { field: "feedbackType", reason: "LIKE 또는 DISLIKE" },
+      ]);
+    }
     const fb = {
       feedbackId: state.feedbacks[m[1]]?.feedbackId ?? nextId(),
       candidateId: +m[1],
@@ -259,6 +323,9 @@ const routes = [
     return { __status: 204 };
   }],
 ];
+
+// 인증 없이 호출 가능한 경로
+const PUBLIC = new Set(["POST /auth/signup", "POST /auth/login"]);
 
 const STATUS_TEXT = {
   200: "OK",
@@ -283,7 +350,7 @@ const ERROR_CODE = {
   422: "AI_RESULT_INVALID",
 };
 const ERROR_MESSAGE = {
-  401: "인증이 필요합니다.",
+  401: "인증 토큰이 없거나 만료되었습니다.",
   403: "접근할 수 없는 리소스입니다.",
   404: "요청한 리소스를 찾을 수 없습니다.",
   409: "현재 상태에서는 요청을 처리할 수 없습니다.",
@@ -325,6 +392,15 @@ function settle(status, data, config) {
   return Promise.reject(error);
 }
 
+function bearerToken(config) {
+  const h = config.headers || {};
+  const raw =
+    h.Authorization ||
+    h.authorization ||
+    (typeof h.get === "function" ? h.get("Authorization") : "");
+  return String(raw || "");
+}
+
 export default async function mockAdapter(config) {
   await delay();
   const method = (config.method || "get").toUpperCase();
@@ -339,6 +415,15 @@ export default async function mockAdapter(config) {
     }
   }
   if (typeof FormData !== "undefined" && body instanceof FormData) body = { file: "(mock file)" };
+
+  // 인증 확인: 공개 경로 외에는 Bearer 토큰 필요
+  if (!PUBLIC.has(`${method} ${url}`) && !/^Bearer\s+mock-token-/.test(bearerToken(config))) {
+    return settle(
+      401,
+      { code: "UNAUTHORIZED", message: "인증 토큰이 없거나 만료되었습니다.", fieldErrors: [] },
+      config
+    );
+  }
 
   for (const [m, re, handler] of routes) {
     if (m !== method) continue;

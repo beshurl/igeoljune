@@ -4,6 +4,7 @@ import { ref, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useGiftStore } from "../store/gift";
 import { DISLIKE_REASON, labelOf } from "../constants/enums";
+import { extractApiError } from "../utils/apiError";
 
 const route = useRoute();
 const router = useRouter();
@@ -39,7 +40,7 @@ async function reRecommend() {
     const updated = await giftStore.reRecommend();
     router.push({ name: "SCR-AI-001", params: { recommendationId: updated.recommendationId } });
   } catch (e) {
-    error.value = e?.response?.data?.message || "재추천 요청에 실패했습니다.";
+    error.value = extractApiError(e, "재추천 요청에 실패했습니다.").message;
   } finally {
     busy.value = false;
   }
@@ -84,7 +85,7 @@ async function reRecommend() {
           </div>
         </div>
 
-        <p v-if="error" class="form-error">{{ error }}</p>
+        <InlineAlert type="error" :message="error" />
 
         <div class="actions">
           <button class="btn--link" @click="back">추천 결과로 돌아가기</button>

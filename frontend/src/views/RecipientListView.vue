@@ -4,6 +4,7 @@ import { ref, reactive, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useRecipientStore } from "../store/recipient";
 import { RELATIONSHIP, AGE_GROUP, GENDER, toOptions, labelOf } from "../constants/enums";
+import { extractApiError } from "../utils/apiError";
 
 const router = useRouter();
 const store = useRecipientStore();
@@ -24,6 +25,11 @@ const editingId = ref(null);
 const saving = ref(false);
 const filter = ref("ALL");
 
+const loading = ref(true);
+const loadError = ref("");
+const actionError = ref("");
+const formError = ref("");
+
 const count = computed(() => store.recipients.length);
 const shown = computed(() =>
   filter.value === "ALL"
@@ -31,7 +37,18 @@ const shown = computed(() =>
     : store.recipients.filter((r) => r.relationship === filter.value)
 );
 
-onMounted(() => store.loadRecipients());
+async function load() {
+  loading.value = true;
+  loadError.value = "";
+  try {
+    await store.loadRecipients();
+  } catch (e) {
+    loadError.value = extractApiError(e).message;
+  } finally {
+    loading.value = false;
+  }
+}
+onMounted(load);
 
 function metaOf(r) {
   return [labelOf(AGE_GROUP, r.ageGroup), labelOf(GENDER, r.gender), r.job]
@@ -53,18 +70,30 @@ function cancelEdit() {
   Object.assign(form, blank());
 }
 async function save() {
-  if (!form.name.trim() || saving.value) return;
+  formError.value = "";
+  if (!form.name.trim() || saving.value) {
+    if (!form.name.trim()) formError.value = "이름 또는 별칭을 입력해 주세요.";
+    return;
+  }
   saving.value = true;
   try {
     if (editingId.value) await store.editRecipient(editingId.value, { ...form });
     else await store.addRecipient({ ...form });
     cancelEdit();
+  } catch (e) {
+    formError.value = extractApiError(e).message;
   } finally {
     saving.value = false;
   }
 }
 async function remove(r) {
-  if (confirm(`'${r.name}' 대상을 삭제할까요?`)) await store.removeRecipient(r.recipientId);
+  if (!confirm(`'${r.name}' 대상을 삭제할까요?`)) return;
+  actionError.value = "";
+  try {
+    await store.removeRecipient(r.recipientId);
+  } catch (e) {
+    actionError.value = extractApiError(e).message;
+  }
 }
 function recommend(r) {
   store.select(r.recipientId);
@@ -110,8 +139,20 @@ function openHistory(r) {
         </button>
       </div>
 
+      <InlineAlert type="error" :message="actionError" />
+
       <div class="cols">
         <div class="list">
+          <div v-if="loading" class="loading-block"><div class="spinner" /> 불러오는 중...</div>
+
+          <InlineAlert
+            v-else-if="loadError"
+            type="error"
+            :message="loadError"
+            retry
+            @retry="load"
+          />
+
           <article
             v-for="r in shown"
             :key="r.recipientId"
@@ -151,7 +192,9 @@ function openHistory(r) {
             </div>
           </article>
 
-          <p v-if="!shown.length" class="muted empty">해당하는 대상이 없습니다.</p>
+          <p v-if="!loading && !loadError && !shown.length" class="muted empty">
+            해당하는 대상이 없습니다.
+          </p>
         </div>
 
         <aside class="card card--pad form">
@@ -162,6 +205,8 @@ function openHistory(r) {
               <p class="muted">소중한 인연의 취향을 기록하세요</p>
             </div>
           </div>
+
+          <InlineAlert type="error" :message="formError" />
 
           <div class="field">
             <label class="field__label">이름 또는 별칭 *</label>

@@ -5,6 +5,7 @@ import { useRouter } from "vue-router";
 import { useRecipientStore } from "../store/recipient";
 import { fetchPreviousGifts, createPreviousGift, deletePreviousGift } from "../api/previousGifts";
 import { RELATIONSHIP, labelOf } from "../constants/enums";
+import { extractApiError } from "../utils/apiError";
 
 const props = defineProps({ recipientId: { type: String, required: true } });
 const router = useRouter();
@@ -14,6 +15,8 @@ const rid = computed(() => Number(props.recipientId));
 const gifts = ref([]);
 const loading = ref(true);
 const saving = ref(false);
+const loadError = ref("");
+const error = ref("");
 const form = reactive({ giftName: "", giftCategory: "", giftedAt: "", note: "" });
 
 const recipient = computed(
@@ -22,21 +25,27 @@ const recipient = computed(
 
 async function load() {
   loading.value = true;
+  loadError.value = "";
   try {
+    recipientStore.select(rid.value);
+    if (!recipientStore.recipients.length) await recipientStore.loadRecipients();
     const res = await fetchPreviousGifts(rid.value);
     gifts.value = res.items ?? [];
+  } catch (e) {
+    loadError.value = extractApiError(e).message;
   } finally {
     loading.value = false;
   }
 }
-onMounted(async () => {
-  recipientStore.select(rid.value);
-  if (!recipientStore.recipients.length) await recipientStore.loadRecipients();
-  await load();
-});
+onMounted(load);
 
 async function add() {
-  if (!form.giftName.trim() || saving.value) return;
+  error.value = "";
+  if (!form.giftName.trim()) {
+    error.value = "선물 이름을 입력해 주세요.";
+    return;
+  }
+  if (saving.value) return;
   saving.value = true;
   try {
     const payload = {
@@ -48,14 +57,21 @@ async function add() {
     const created = await createPreviousGift(rid.value, payload);
     gifts.value.unshift(created);
     Object.assign(form, { giftName: "", giftCategory: "", giftedAt: "", note: "" });
+  } catch (e) {
+    error.value = extractApiError(e, "과거 선물 저장에 실패했습니다.").message;
   } finally {
     saving.value = false;
   }
 }
 async function remove(g) {
   if (!confirm(`'${g.giftName}' 기록을 삭제할까요?`)) return;
-  await deletePreviousGift(g.previousGiftId);
-  gifts.value = gifts.value.filter((x) => x.previousGiftId !== g.previousGiftId);
+  error.value = "";
+  try {
+    await deletePreviousGift(g.previousGiftId);
+    gifts.value = gifts.value.filter((x) => x.previousGiftId !== g.previousGiftId);
+  } catch (e) {
+    error.value = extractApiError(e, "삭제에 실패했습니다.").message;
+  }
 }
 </script>
 
@@ -72,6 +88,8 @@ async function remove(g) {
         </template>
         님에게 과거에 준 선물을 기록해 두면, 다음 추천에서 중복·유사 후보를 피하는 데 활용됩니다.
       </p>
+
+      <InlineAlert type="error" :message="error" />
 
       <div class="card card--pad addbox">
         <div class="input-row">
@@ -100,6 +118,7 @@ async function remove(g) {
       </div>
 
       <div v-if="loading" class="loading-block"><div class="spinner" /> 불러오는 중...</div>
+      <InlineAlert v-else-if="loadError" type="error" :message="loadError" retry @retry="load" />
       <div v-else class="list">
         <div v-for="g in gifts" :key="g.previousGiftId" class="card card--pad row">
           <div>

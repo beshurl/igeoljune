@@ -5,6 +5,7 @@ import { useRouter } from "vue-router";
 import { useRecipientStore } from "../store/recipient";
 import { useGiftStore } from "../store/gift";
 import { OCCASION_TYPE, RELATIONSHIP, toOptions, labelOf } from "../constants/enums";
+import { extractApiError } from "../utils/apiError";
 
 const props = defineProps({ recipientId: { type: String, required: true } });
 const router = useRouter();
@@ -38,7 +39,34 @@ const form = reactive({
   avoidGiftNote: "",
 });
 const submitting = ref(false);
+const submitted = ref(false);
 const error = ref("");
+const fieldErrors = ref({});
+
+const isBudget = (v) => v != null && v !== "" && !Number.isNaN(Number(v));
+const budgetMissing = computed(() => !isBudget(form.budgetMin) || !isBudget(form.budgetMax));
+const budgetNegative = computed(
+  () => (isBudget(form.budgetMin) && Number(form.budgetMin) < 0) ||
+    (isBudget(form.budgetMax) && Number(form.budgetMax) < 0)
+);
+const budgetInvalid = computed(
+  () =>
+    isBudget(form.budgetMin) &&
+    isBudget(form.budgetMax) &&
+    Number(form.budgetMin) > Number(form.budgetMax)
+);
+const budgetError = computed(() => {
+  if (!submitted.value && !fieldErrors.value.budgetMin && !fieldErrors.value.budgetMax) return "";
+  if (fieldErrors.value.budgetMax) return fieldErrors.value.budgetMax;
+  if (fieldErrors.value.budgetMin) return fieldErrors.value.budgetMin;
+  if (budgetMissing.value) return "최소·최대 예산을 모두 입력해 주세요.";
+  if (budgetNegative.value) return "예산은 0 이상이어야 합니다.";
+  if (budgetInvalid.value) return "최소 예산은 최대 예산보다 클 수 없습니다.";
+  return "";
+});
+const canSubmit = computed(
+  () => !budgetMissing.value && !budgetNegative.value && !budgetInvalid.value
+);
 
 const recipient = computed(
   () => recipientStore.recipients.find((r) => r.recipientId === rid.value) || null
@@ -46,7 +74,11 @@ const recipient = computed(
 
 onMounted(async () => {
   recipientStore.select(rid.value);
-  if (!recipientStore.recipients.length) await recipientStore.loadRecipients();
+  try {
+    if (!recipientStore.recipients.length) await recipientStore.loadRecipients();
+  } catch (e) {
+    error.value = extractApiError(e, "대상 정보를 불러오지 못했습니다.").message;
+  }
 });
 
 function applyPreset(p) {
@@ -61,14 +93,19 @@ function goKakao() {
 
 async function submit() {
   if (submitting.value) return;
-  submitting.value = true;
+  submitted.value = true;
   error.value = "";
+  fieldErrors.value = {};
+  if (!canSubmit.value) return; // budgetError 가 화면에 표시됨
+  submitting.value = true;
   try {
     await giftStore.submitCondition(rid.value, { ...form });
     const accepted = await giftStore.requestRecommendation();
     router.push({ name: "SCR-AI-001", params: { recommendationId: accepted.recommendationId } });
   } catch (e) {
-    error.value = e?.response?.data?.message || "추천 요청에 실패했습니다.";
+    const parsed = extractApiError(e, "추천 요청에 실패했습니다.");
+    error.value = parsed.message;
+    fieldErrors.value = parsed.fieldErrors;
     submitting.value = false;
   }
 }
@@ -129,6 +166,7 @@ async function submit() {
               {{ p.label }}
             </button>
           </div>
+          <p v-if="budgetError" class="form-error">{{ budgetError }}</p>
         </div>
 
         <div class="field">
@@ -156,11 +194,15 @@ async function submit() {
         <span class="material-symbols-outlined">chevron_right</span>
       </button>
 
-      <p v-if="error" class="form-error" style="margin-top: 14px">{{ error }}</p>
+      <InlineAlert type="error" :message="error" />
 
       <div class="submit">
         <span class="muted">제외 조건에 해당하는 후보는 생성되지 않습니다.</span>
-        <button class="btn btn--primary btn--lg" :disabled="submitting" @click="submit">
+        <button
+          class="btn btn--primary btn--lg"
+          :disabled="submitting"
+          @click="submit"
+        >
           <span class="material-symbols-outlined">auto_awesome</span>
           {{ submitting ? "AI 추천 요청 중..." : "조건으로 AI 선물 추천받기" }}
         </button>

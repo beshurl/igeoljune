@@ -22,11 +22,23 @@ http.interceptors.request.use((config) => {
   return config;
 });
 
-// 응답 인터셉터: 성공 시 body 반환, 에러는 그대로 전달
+// 응답 인터셉터: 성공 시 body 반환, 401 은 세션 만료 처리
+let sessionExpiredNotified = false;
 http.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    // TODO: 401 처리 -> 토큰 제거 후 로그인 화면(SCR-AUTH-001) 리다이렉트
+    if (error?.response?.status === 401) {
+      localStorage.removeItem("accessToken");
+      // 라우터/스토어 순환 참조를 피하려고 이벤트로 알림 (App.vue 가 수신)
+      if (!sessionExpiredNotified) {
+        sessionExpiredNotified = true;
+        window.dispatchEvent(new CustomEvent("auth:expired"));
+        // 다음 요청을 위해 곧바로 플래그 해제
+        setTimeout(() => {
+          sessionExpiredNotified = false;
+        }, 1000);
+      }
+    }
     return Promise.reject(error);
   }
 );

@@ -3,6 +3,7 @@
 import { ref, reactive, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "../store/auth";
+import { extractApiError, EMAIL_RE } from "../utils/apiError";
 
 const route = useRoute();
 const router = useRouter();
@@ -12,26 +13,51 @@ const isSignup = computed(() => route.name === "SCR-AUTH-002");
 const form = reactive({ email: "", password: "", name: "" });
 const error = ref("");
 const notice = ref("");
+const noticeType = ref("success");
 const loading = ref(false);
+const submitted = ref(false);
 
 watch(
-  () => route.name,
+  () => [route.name, route.query.signup, route.query.expired].join(),
   () => {
     error.value = "";
-    notice.value = route.query.signup === "success" ? "회원가입이 완료되었습니다. 로그인해 주세요." : "";
+    submitted.value = false;
+    if (route.query.expired) {
+      notice.value = "세션이 만료되었습니다. 다시 로그인해 주세요.";
+      noticeType.value = "warning";
+    } else if (route.query.signup === "success") {
+      notice.value = "회원가입이 완료되었습니다. 로그인해 주세요.";
+      noticeType.value = "success";
+    } else {
+      notice.value = "";
+    }
   },
   { immediate: true }
 );
 
-const canSubmit = computed(
+const emailError = computed(() => {
+  if (!submitted.value || !form.email.trim()) return "";
+  return EMAIL_RE.test(form.email.trim()) ? "" : "올바른 이메일 형식이 아닙니다.";
+});
+const passwordError = computed(() => {
+  if (!submitted.value || !form.password) return "";
+  if (isSignup.value && form.password.length < 8) return "비밀번호는 8자 이상이어야 합니다.";
+  return "";
+});
+const nameError = computed(() =>
+  submitted.value && isSignup.value && !form.name.trim() ? "이름을 입력해 주세요." : ""
+);
+
+const isValid = computed(
   () =>
-    form.email.trim() &&
+    EMAIL_RE.test(form.email.trim()) &&
     form.password.trim().length >= (isSignup.value ? 8 : 1) &&
     (!isSignup.value || form.name.trim())
 );
 
 async function submit() {
-  if (!canSubmit.value || loading.value) return;
+  submitted.value = true;
+  if (!isValid.value || loading.value) return;
   loading.value = true;
   error.value = "";
   try {
@@ -43,8 +69,7 @@ async function submit() {
       router.push({ name: "SCR-RECIPIENT-001" });
     }
   } catch (e) {
-    error.value =
-      e?.response?.data?.message || "요청을 처리하지 못했습니다. 다시 시도해 주세요.";
+    error.value = extractApiError(e).message;
   } finally {
     loading.value = false;
   }
@@ -70,16 +95,19 @@ async function submit() {
         받는 사람과 상황에 맞는 선물을, 이유와 함께 추천해 드립니다.
       </p>
 
-      <p v-if="notice" class="auth__notice">{{ notice }}</p>
+      <InlineAlert :type="noticeType" :message="notice" />
+      <InlineAlert type="error" :message="error" />
 
-      <form @submit.prevent="submit">
+      <form @submit.prevent="submit" novalidate>
         <div v-if="isSignup" class="field">
           <label class="field__label">이름</label>
           <input class="input" v-model="form.name" placeholder="이름을 입력하세요" autocomplete="name" />
+          <p v-if="nameError" class="form-error">{{ nameError }}</p>
         </div>
         <div class="field">
           <label class="field__label">이메일</label>
           <input class="input" type="email" v-model="form.email" placeholder="you@example.com" autocomplete="email" />
+          <p v-if="emailError" class="form-error">{{ emailError }}</p>
         </div>
         <div class="field">
           <label class="field__label">비밀번호</label>
@@ -90,11 +118,10 @@ async function submit() {
             :placeholder="isSignup ? '8자 이상' : '비밀번호'"
             :autocomplete="isSignup ? 'new-password' : 'current-password'"
           />
+          <p v-if="passwordError" class="form-error">{{ passwordError }}</p>
         </div>
 
-        <p v-if="error" class="form-error">{{ error }}</p>
-
-        <button class="btn btn--primary btn--block btn--lg" :disabled="!canSubmit || loading">
+        <button class="btn btn--primary btn--block btn--lg" :disabled="loading">
           {{ loading ? "처리 중..." : isSignup ? "회원가입" : "로그인" }}
         </button>
       </form>

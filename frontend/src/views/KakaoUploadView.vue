@@ -4,6 +4,7 @@ import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { useRecipientStore } from "../store/recipient";
 import { useKakaoStore } from "../store/kakao";
+import { extractApiError } from "../utils/apiError";
 
 const router = useRouter();
 const recipientStore = useRecipientStore();
@@ -40,7 +41,8 @@ async function start() {
     progress.value = 100;
     router.push({ name: "SCR-KAKAO-002" });
   } catch (e) {
-    error.value = e?.response?.data?.message || "분석에 실패했습니다.";
+    error.value = extractApiError(e, "분석에 실패했습니다.").message;
+    progress.value = 0;
   } finally {
     clearInterval(timer);
   }
@@ -80,7 +82,7 @@ async function start() {
       </div>
 
       <div v-if="kakao.analyzing" class="bar"><div class="bar__fill" :style="{ width: progress + '%' }" /></div>
-      <p v-if="error" class="form-error" style="margin-top: 12px">{{ error }}</p>
+      <div style="margin-top: 12px"><InlineAlert type="error" :message="error" /></div>
 
       <div class="actions">
         <button class="btn btn--outline" @click="pick">파일 선택</button>
