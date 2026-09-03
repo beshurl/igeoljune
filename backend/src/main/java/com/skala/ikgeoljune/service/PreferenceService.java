@@ -43,14 +43,18 @@ public class PreferenceService {
                                                        PreferenceBulkCreateRequest request) {
         Recipient recipient = ownershipValidator.getOwnedRecipient(recipientId, userId);
 
+        SourceType sourceType = request.resolveSourceType();
+        if (sourceType != SourceType.KAKAO) {
+            throw ApiException.validation("일괄 저장은 카카오 분석 결과(KAKAO)만 지원합니다.");
+        }
+
         List<PreferenceResponse> saved = new ArrayList<>();
         for (PreferenceCreateRequest item : request.items()) {
             if (isDuplicated(recipientId, item.preferenceType(), item.preferenceValue())) {
                 continue;
             }
-            // 카카오 분석 검토 화면에서 승인한 항목이므로 sourceType 은 서버가 KAKAO 로 설정한다.
             StructuredPreference preference = StructuredPreference.create(
-                    recipient, item.preferenceType(), item.preferenceValue(), SourceType.KAKAO);
+                    recipient, item.preferenceType(), item.preferenceValue(), sourceType);
             saved.add(PreferenceResponse.from(preferenceRepository.save(preference)));
         }
         return ListResponse.of(saved);
