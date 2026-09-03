@@ -113,7 +113,7 @@ class GiftRecommendationFlowTest {
                         .header("Authorization", token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"items":[
+                                {"sourceType":"KAKAO","items":[
                                   {"preferenceType":"INTEREST","preferenceValue":"홈카페"},
                                   {"preferenceType":"WISH_ITEM","preferenceValue":"무선 충전기"},
                                   {"preferenceType":"DISLIKED_CATEGORY","preferenceValue":"향수"}
@@ -161,31 +161,35 @@ class GiftRecommendationFlowTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
-        // RECOMMEND-001 202 Accepted, PROCESSING
-        JsonNode requested = readJson(mockMvc.perform(
+        // RECOMMEND-001 — 201 Created 로 후보를 즉시 반환한다 (폴링 없음)
+        JsonNode detail = readJson(mockMvc.perform(
                         post("/api/v1/gift-conditions/{id}/recommendations", conditionId)
                                 .header("Authorization", token))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("PROCESSING"))
-                .andExpect(jsonPath("$.previousRecommendationId").doesNotExist())
+                .andExpect(status().isCreated())
+                .andExpect(header().exists("Location"))
+                .andExpect(jsonPath("$.candidates").isNotEmpty())
                 .andReturn());
-        long recommendationId = requested.get("recommendationId").asLong();
-
-        // RECOMMEND-002 완료까지 폴링
-        JsonNode detail = awaitSuccess(token, recommendationId);
-        assertThat(detail.get("candidates")).isNotEmpty();
-        // 성공한 추천에는 failure 가 없고 updatedAt 이 채워진다
+        long recommendationId = detail.get("recommendationId").asLong();
         assertThat(detail.get("failure").isNull()).isTrue();
         assertThat(detail.get("updatedAt").isNull()).isFalse();
+
+        // 같은 내용을 RECOMMEND-002 로도 다시 조회할 수 있다
+        JsonNode reloaded = readJson(mockMvc.perform(get("/api/v1/recommendations/{id}", recommendationId)
+                        .header("Authorization", token))
+                .andExpect(status().isOk())
+                .andReturn());
+        assertThat(reloaded.get("candidates").size()).isEqualTo(detail.get("candidates").size());
 
         JsonNode firstCandidate = detail.get("candidates").get(0);
         assertThat(firstCandidate.get("recommendRank").asInt()).isEqualTo(1);
         assertThat(firstCandidate.get("createdAt").isNull()).isFalse();
         assertThat(firstCandidate.get("feedback").isNull()).isTrue();
 
-        // 예산 범위 안으로 잘린 예상 가격
-        assertThat(firstCandidate.get("estimatedPriceMin").asInt()).isGreaterThanOrEqualTo(30000);
-        assertThat(firstCandidate.get("estimatedPriceMax").asInt()).isLessThanOrEqualTo(70000);
+        // 가격은 예산으로 보정하지 않는다 (min <= max 만 보장)
+        for (JsonNode candidate : detail.get("candidates")) {
+            assertThat(candidate.get("estimatedPriceMin").asInt())
+                    .isLessThanOrEqualTo(candidate.get("estimatedPriceMax").asInt());
+        }
 
         // 과거 선물과 avoidGiftNote(전자기기)는 후보에서 빠진다
         for (JsonNode candidate : detail.get("candidates")) {
@@ -233,16 +237,14 @@ class GiftRecommendationFlowTest {
         assertThat(disliked.get("feedbackId").asLong()).isEqualTo(liked.get("feedbackId").asLong());
 
         // RECOMMEND-004 재추천 — previousRecommendationId 로 이전 추천을 연결
-        JsonNode reRequested = readJson(mockMvc.perform(
+        JsonNode reDetail = readJson(mockMvc.perform(
                         post("/api/v1/recommendations/{id}/re-recommend", recommendationId)
                                 .header("Authorization", token))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.status").value("PROCESSING"))
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.previousRecommendationId").value(recommendationId))
+                .andExpect(jsonPath("$.candidates").isNotEmpty())
                 .andReturn());
-        long reRecommendationId = reRequested.get("recommendationId").asLong();
-
-        JsonNode reDetail = awaitSuccess(token, reRecommendationId);
+        long reRecommendationId = reDetail.get("recommendationId").asLong();
         String dislikedGiftName = firstCandidate.get("giftName").asText();
         for (JsonNode candidate : reDetail.get("candidates")) {
             assertThat(candidate.get("giftName").asText()).isNotEqualTo(dislikedGiftName);
@@ -356,36 +358,6 @@ class GiftRecommendationFlowTest {
     }
 
     @Test
-    @DisplayName("추천이 실패하면 failure 에 사유가 담겨 내려간다")
-    void failedRecommendationCarriesFailureReason() throws Exception {
-        String token = signupAndLogin("fail@example.com", "실패");
-        long recipientId = createRecipient(token);
-
-        // 카탈로그 가격대를 완전히 벗어난 예산이라 후보를 만들 수 없다
-        JsonNode condition = readJson(mockMvc.perform(post("/api/v1/recipients/{id}/gift-conditions", recipientId)
-                        .header("Authorization", token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"budgetMin":1000000,"budgetMax":2000000,"occasionType":"BIRTHDAY"}
-                                """))
-                .andExpect(status().isCreated())
-                .andReturn());
-        long conditionId = condition.get("conditionId").asLong();
-
-        JsonNode accepted = readJson(mockMvc.perform(
-                        post("/api/v1/gift-conditions/{id}/recommendations", conditionId)
-                                .header("Authorization", token))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.updatedAt").exists())
-                .andReturn());
-
-        JsonNode detail = awaitStatus(token, accepted.get("recommendationId").asLong(), "FAILED");
-        assertThat(detail.get("candidates")).isEmpty();
-        assertThat(detail.get("failure").get("code").asText()).isEqualTo("AI_RESULT_INVALID");
-        assertThat(detail.get("failure").get("message").asText()).contains("찾지 못했습니다");
-    }
-
-    @Test
     @DisplayName("경로는 있으나 메서드가 다르면 404 가 아니라 405 를 반환한다")
     void wrongMethodReturns405() throws Exception {
         String token = signupAndLogin("method@example.com", "메서드");
@@ -432,8 +404,8 @@ class GiftRecommendationFlowTest {
     }
 
     @Test
-    @DisplayName("202 응답은 Location 헤더로 상태 조회 URI 를 알려준다")
-    void acceptedResponseCarriesLocationHeader() throws Exception {
+    @DisplayName("추천 생성 응답은 Location 헤더로 조회 URI 를 알려준다")
+    void createdResponseCarriesLocationHeader() throws Exception {
         String token = signupAndLogin("location@example.com", "위치");
         long recipientId = createRecipient(token);
 
@@ -446,14 +418,82 @@ class GiftRecommendationFlowTest {
                 .andReturn());
         long conditionId = condition.get("conditionId").asLong();
 
-        JsonNode accepted = readJson(mockMvc.perform(
+        JsonNode created = readJson(mockMvc.perform(
                         post("/api/v1/gift-conditions/{id}/recommendations", conditionId)
                                 .header("Authorization", token))
-                .andExpect(status().isAccepted())
+                .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"))
                 .andReturn());
 
-        assertThat(accepted.get("updatedAt").isNull()).isFalse();
+        assertThat(created.get("updatedAt").isNull()).isFalse();
+        assertThat(created.get("candidates")).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("추천 후보 하나를 최종 선물로 선택하면 selectedAt 이 기록된다")
+    void selectsFinalGift() throws Exception {
+        String token = signupAndLogin("select@example.com", "선택");
+        long recipientId = createRecipient(token);
+
+        JsonNode condition = readJson(mockMvc.perform(post("/api/v1/recipients/{id}/gift-conditions", recipientId)
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"budgetMin":30000,"budgetMax":70000,"occasionType":"BIRTHDAY"}
+                                """))
+                .andReturn());
+
+        JsonNode detail = readJson(mockMvc.perform(
+                        post("/api/v1/gift-conditions/{id}/recommendations", condition.get("conditionId").asLong())
+                                .header("Authorization", token))
+                .andExpect(status().isCreated())
+                .andReturn());
+
+        long first = detail.get("candidates").get(0).get("candidateId").asLong();
+        long second = detail.get("candidates").get(1).get("candidateId").asLong();
+
+        // 선택 전에는 selectedAt 이 비어 있다
+        assertThat(detail.get("candidates").get(0).get("selectedAt").isNull()).isTrue();
+
+        mockMvc.perform(put("/api/v1/recommendation-candidates/{id}/selection", first)
+                        .header("Authorization", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.candidateId").value(first))
+                .andExpect(jsonPath("$.selectedAt").exists());
+
+        // 같은 추천 안에서 다른 후보를 선택하면 기존 선택은 해제된다
+        mockMvc.perform(put("/api/v1/recommendation-candidates/{id}/selection", second)
+                        .header("Authorization", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.selectedAt").exists());
+
+        mockMvc.perform(get("/api/v1/recommendation-candidates/{id}/selection", first)
+                        .header("Authorization", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.selectedAt").doesNotExist());
+
+        // 추천 조회 응답에도 선택 상태가 함께 내려간다
+        JsonNode reloaded = readJson(mockMvc.perform(
+                        get("/api/v1/recommendations/{id}", detail.get("recommendationId").asLong())
+                                .header("Authorization", token))
+                .andReturn());
+        long selectedCount = 0;
+        for (JsonNode candidate : reloaded.get("candidates")) {
+            if (!candidate.get("selectedAt").isNull()) {
+                selectedCount++;
+                assertThat(candidate.get("candidateId").asLong()).isEqualTo(second);
+            }
+        }
+        assertThat(selectedCount).isEqualTo(1);
+
+        // 선택 취소
+        mockMvc.perform(delete("/api/v1/recommendation-candidates/{id}/selection", second)
+                        .header("Authorization", token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/recommendation-candidates/{id}/selection", second)
+                        .header("Authorization", token))
+                .andExpect(jsonPath("$.selectedAt").doesNotExist());
     }
 
     private long createRecipient(String token) throws Exception {
@@ -484,28 +524,6 @@ class GiftRecommendationFlowTest {
                 .andExpect(status().isOk())
                 .andReturn());
         return "Bearer " + login.get("accessToken").asText();
-    }
-
-    private JsonNode awaitSuccess(String token, long recommendationId) throws Exception {
-        return awaitStatus(token, recommendationId, "SUCCESS");
-    }
-
-    /** RECOMMEND-001 은 비동기이므로 원하는 status 가 될 때까지 RECOMMEND-002 를 폴링한다. */
-    private JsonNode awaitStatus(String token, long recommendationId, String expected) throws Exception {
-        for (int i = 0; i < 50; i++) {
-            JsonNode detail = readJson(mockMvc.perform(get("/api/v1/recommendations/{id}", recommendationId)
-                            .header("Authorization", token))
-                    .andExpect(status().isOk())
-                    .andReturn());
-
-            String status = detail.get("status").asText();
-            if (expected.equals(status)) {
-                return detail;
-            }
-            assertThat(status).isEqualTo("PROCESSING");
-            Thread.sleep(100);
-        }
-        throw new AssertionError("추천이 제한 시간 안에 " + expected + " 상태가 되지 않았습니다.");
     }
 
     private JsonNode readJson(MvcResult result) throws Exception {
