@@ -116,8 +116,8 @@ com.skala.ikgeoljune
 
 ## 계약 문서 대응
 
-구현 기준은 **`DB.dbml`(스키마)** 과 **`API.yml`(REST 계약)** 두 파일이다.
-Notion 명세서와 어긋나는 부분은 이 두 파일을 따른다.
+구현 기준은 **`DB.dbml`(스키마)** 과 **`API.yml`(REST 계약)** 두 파일이며,
+`docs/contract/` 에서 함께 버전 관리한다. 어긋나는 항목과 갱신 필요 사항은 `docs/contract/README.md` 참고.
 
 - 스키마: `V1__init.sql` 이 `DB.dbml` 의 테이블·인덱스·CHECK 제약·FK 삭제 규칙을 그대로 옮긴 것
 - 오류 코드: `API.yml components/responses` 의 `VALIDATION_ERROR`, `UNAUTHORIZED`, `RESOURCE_FORBIDDEN`,
@@ -131,15 +131,27 @@ Notion 명세서와 어긋나는 부분은 이 두 파일을 따른다.
 
 ### AI 추천 흐름
 
-`RECOMMEND-001` / `RECOMMEND-004` 는 `recommendations` 레코드를 `PROCESSING` 상태로 만들고
-**202 Accepted** 와 `Location: /api/v1/recommendations/{id}` 헤더를 즉시 반환한다.
-실제 AI 호출은 트랜잭션 커밋 후 `aiTaskExecutor` 스레드에서 실행되고, 끝나면 상태가 `SUCCESS` 또는 `FAILED` 로 바뀐다.
-FAILED 이면 `failure: { code, message }` 가 함께 내려간다.
+MVP 계약은 **동기 처리**다. Mock 추천을 요청 스레드 안에서 실행하고
+**201 Created** 로 완성된 후보를 즉시 반환한다. 프론트는 폴링하지 않는다.
 
 ```
-POST /api/v1/gift-conditions/{conditionId}/recommendations   → 202 { status: "PROCESSING" }
-GET  /api/v1/recommendations/{recommendationId}              → 200 { status: "PROCESSING", candidates: [] }
-GET  /api/v1/recommendations/{recommendationId}              → 200 { status: "SUCCESS",    candidates: [...] }
+POST /api/v1/gift-conditions/{conditionId}/recommendations   → 201 { candidates: [...] }
+                                                                Location: /api/v1/recommendations/10
+GET  /api/v1/recommendations/{recommendationId}              → 200 { candidates: [...] }
+```
+
+후보를 만들지 못하면 실행 기록을 남기지 않고 **422 `AI_RESULT_INVALID`** 를 반환한다.
+실제 LLM 연동으로 응답 시간이 길어지면 그때 비동기 + 폴링으로 전환하고,
+`recommendations.status` / `failure_code` / `failure_message` 컬럼을 그 용도로 사용한다.
+
+### 최종 선물 선택
+
+추천 후보 하나를 최종 선물로 선택하면 `selectedAt` 이 기록된다. 한 추천 실행 안에서 최대 1건이다.
+
+```
+PUT    /api/v1/recommendation-candidates/{candidateId}/selection   → 200 (후보 객체)
+GET    /api/v1/recommendation-candidates/{candidateId}/selection   → 200
+DELETE /api/v1/recommendation-candidates/{candidateId}/selection   → 204
 ```
 
 ### Mock AI 교체 방법
@@ -156,7 +168,8 @@ public interface GiftAiClient {
 `MockGiftAiClient` 는 `@ConditionalOnProperty(app.ai.provider=mock)` 으로 등록되어 있고,
 카탈로그 기반 규칙으로 아래를 실제로 반영한다.
 
-- 예산 범위 밖 상품 제외, 예상 가격은 카탈로그 가격대 ∩ 예산
+- 예상 가격은 **카탈로그 실제 가격** 을 그대로 사용한다. 예산으로 보정하지 않는다
+- 예산 내 후보를 우선하되 예산 밖 대안도 함께 제안한다(기획의 "예산보다 낮거나 높은 대안")
 - `structured_preference` 의 관심사·선호 속성 매칭, `WISH_ITEM` 최우선 가점
 - `DISLIKED_CATEGORY` 취향과 `avoidGiftNote` 키워드에 걸리는 상품 제외
 - `previous_gifts` 와 같은 상품 제외
