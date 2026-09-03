@@ -114,19 +114,27 @@ com.skala.ikgeoljune
 └── controller    REST 컨트롤러 (모두 /api/v1)
 ```
 
-## 명세서 대응
+## 계약 문서 대응
 
-- 공통 응답: 단건은 리소스 객체, 목록은 `{ "items": [], "totalCount": 0 }` (`ListResponse`)
-- 공통 오류: `{ "code", "message", "fieldErrors" }` (`ErrorResponse`, `GlobalExceptionHandler`)
-- 소유권 검증(§1.5): `OwnershipValidator` 가 candidate → recommendation → condition → recipient → user 경로를 확인한다. 없으면 404, 남의 리소스면 403.
+구현 기준은 **`DB.dbml`(스키마)** 과 **`API.yml`(REST 계약)** 두 파일이다.
+Notion 명세서와 어긋나는 부분은 이 두 파일을 따른다.
+
+- 스키마: `V1__init.sql` 이 `DB.dbml` 의 테이블·인덱스·CHECK 제약·FK 삭제 규칙을 그대로 옮긴 것
+- 오류 코드: `API.yml components/responses` 의 `VALIDATION_ERROR`, `UNAUTHORIZED`, `RESOURCE_FORBIDDEN`,
+  `RESOURCE_NOT_FOUND`, `RESOURCE_CONFLICT`, `AI_RESULT_INVALID` 만 사용한다.
+  구체적인 상황은 `message` 로 전달하고 `code` 를 세분화하지 않는다.
+- 요청 검증: `minProperties: 1`(빈 PATCH 본문 거부), `additionalProperties: false`(모르는 필드 거부)를 실제로 강제한다
+- 목록: `{ items, totalCount }`. `GET /recipients` 는 `page`(≥0), `size`(1~100) 를 받는다
 - 일시: `Asia/Seoul` 기준 ISO 8601 (`2026-09-03T14:30:00+09:00`)
-- 회원가입·로그인을 제외한 모든 API 는 `Authorization: Bearer {accessToken}` 필요
+- 소유권 검증: `OwnershipValidator` 가 candidate → recommendation → condition → recipient → user 경로를 확인한다.
+  없으면 404, 남의 리소스면 403
 
 ### AI 추천 흐름
 
-`RECOMMEND-001` / `RECOMMEND-004` 는 `recommendations` 레코드를 `PROCESSING` 상태로 만들고 **202 Accepted** 를 즉시 반환한다.
+`RECOMMEND-001` / `RECOMMEND-004` 는 `recommendations` 레코드를 `PROCESSING` 상태로 만들고
+**202 Accepted** 와 `Location: /api/v1/recommendations/{id}` 헤더를 즉시 반환한다.
 실제 AI 호출은 트랜잭션 커밋 후 `aiTaskExecutor` 스레드에서 실행되고, 끝나면 상태가 `SUCCESS` 또는 `FAILED` 로 바뀐다.
-프론트엔드는 `RECOMMEND-002` 를 폴링해서 완료를 확인하면 된다.
+FAILED 이면 `failure: { code, message }` 가 함께 내려간다.
 
 ```
 POST /api/v1/gift-conditions/{conditionId}/recommendations   → 202 { status: "PROCESSING" }
@@ -148,22 +156,25 @@ public interface GiftAiClient {
 `MockGiftAiClient` 는 `@ConditionalOnProperty(app.ai.provider=mock)` 으로 등록되어 있고,
 카탈로그 기반 규칙으로 아래를 실제로 반영한다.
 
-- 예산 범위(`budgetMin` ~ `budgetMax`) 밖 상품 감점, 예상 가격은 예산 안으로 절삭
+- 예산 범위 밖 상품 제외, 예상 가격은 카탈로그 가격대 ∩ 예산
 - `structured_preference` 의 관심사·선호 속성 매칭, `WISH_ITEM` 최우선 가점
 - `DISLIKED_CATEGORY` 취향과 `avoidGiftNote` 키워드에 걸리는 상품 제외
 - `previous_gifts` 와 같은 상품 제외
-- 재추천 시 이전 추천에서 `DISLIKE` 한 상품과, `TASTE_MISMATCH`·`WANT_DIFFERENT_STYLE` 사유의 카테고리 제외
+- 재추천 시 이전 추천에서 `DISLIKE` 한 상품과 해당 사유의 카테고리 제외
 
 실제 LLM 으로 바꿀 때는 `GiftAiClient` 를 구현한 빈을 추가하고 `AI_PROVIDER` 값만 바꾸면 되며,
 서비스·컨트롤러 코드는 건드릴 필요가 없다.
 
 ## 팀 확인이 필요한 지점
 
-명세서를 그대로 따르되, 아래 항목은 판단이 필요해 다음과 같이 구현했다.
-
-1. **`recommendationRank` 필드명** — RECOMMEND-002 예시에는 `recommendation_rank` 로 되어 있지만 §1.1 의 "JSON 필드명은 camelCase" 규칙을 따라 **`recommendationRank`** 로 내보낸다.
-2. **`status = FAILED` 응답** — ERD 에 실패 사유 컬럼이 없어, 200 OK 로 `status: "FAILED"` + `candidates: []` 를 반환한다. 별도 오류 응답이 필요하면 `recommendations` 에 `failure_reason` 컬럼 추가가 필요하다.
-3. **`relationship` / `ageGroup` / `gender` / `occasionType` / `giftCategory`** — §10 에 값 목록이 없어 문자열로 두었다. 값이 확정되면 Enum 으로 승격한다.
-4. **PREF-002 중복 처리** — 이미 있는 `(recipientId, type, value)` 항목은 409 대신 **건너뛰고** 신규만 저장한다(분석 결과 재저장을 막지 않기 위해). PREF-001 단건 등록은 409 를 반환한다.
-5. **추천 조건 목록 조회 API 부재** — 명세서에 `GET /recipients/{recipientId}/gift-conditions` 가 없다. 프론트에서 필요하면 추가해야 한다.
-6. **카카오톡 파일 제한** — 5MB / `.txt`, `.csv` 로 잡아 두었다(`app.kakao-analysis.*`). 실제 내보내기 파일 형식에 맞춰 조정 필요.
+1. **Notion 명세서와 `API.yml` 불일치** — 후보 순위 필드가 Notion 은 `recommendation_rank`, `API.yml` 은 `recommendRank` 다.
+   구현은 `API.yml`(및 `DB.dbml` 의 `recommend_rank` 컬럼)을 따랐다. Notion 명세서 갱신이 필요하다.
+2. **오류 코드 세분화 불가** — `API.yml` 이 `RESOURCE_CONFLICT` 하나로 409 를 표현하므로
+   이메일 중복과 취향 중복을 `code` 로 구분할 수 없다. 현재는 `message` 로만 구분한다.
+   프론트에서 분기가 필요하면 계약에 코드 추가가 필요하다.
+3. **`Idempotency-Key` 헤더 미구현** — `API.yml` 에 "서버 지원 여부를 구현 전에 확정합니다" 로 적혀 있어 보류했다.
+   받아만 두고 무시하면 클라이언트가 중복 방지를 신뢰하게 되므로 일부러 구현하지 않았다.
+4. **추천 조건 목록 조회 API 부재** — `API.yml` 에 `GET /recipients/{recipientId}/gift-conditions` 가 없다.
+   프론트에서 필요하면 계약에 추가해야 한다.
+5. **`relationship` / `ageGroup` / `gender` / `occasionType` / `giftCategory`** — 두 문서 모두 값 목록이 없어 문자열로 두었다.
+6. **카카오톡 파일 제한** — 5MB / `.txt`, `.csv` 로 잡아 두었다(`app.kakao-analysis.*`).
