@@ -8,9 +8,14 @@ spring:
     password: ${DB_PASSWORD:ikgeoljune}
     driver-class-name: org.postgresql.Driver
 
+  # 스키마는 Flyway(db/migration)가 소유한다. 엔티티를 바꿨다면 새 마이그레이션을 추가할 것.
+  flyway:
+    enabled: true
+    baseline-on-migrate: false   # 이전 스키마가 남은 DB 에서는 실행을 거부하게 둔다
+
   jpa:
     hibernate:
-      ddl-auto: update   # 팀 개발 단계: update / 운영 전환 시 validate + Flyway 권장
+      ddl-auto: validate   # Hibernate 는 검증만 한다. 스키마 변경은 Flyway 로만.
     open-in-view: false
     show-sql: true
     properties:

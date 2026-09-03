@@ -53,6 +53,38 @@ DB_URL=jdbc:postgresql://localhost:5432/mydb DB_USERNAME=me DB_PASSWORD=secret .
 ./mvnw test
 ```
 
+## DB 마이그레이션
+
+스키마는 **Flyway** 가 소유한다 (`src/main/resources/db/migration`).
+Hibernate 는 `ddl-auto: validate` 로 검증만 하며 스키마를 바꾸지 않는다.
+
+- 엔티티를 변경했다면 반드시 새 마이그레이션(`V2__*.sql`, `V3__*.sql` ...)을 추가한다.
+- `local` 프로필과 테스트는 인메모리 H2 라 Flyway 를 끄고 `create-drop` 을 쓴다.
+
+### 기존 DB 에서 업그레이드
+
+Google OAuth 시절 스키마(`users.google_sub`, `recipients` 등)가 남아 있는 DB 로 기동하면
+Flyway 가 아래 메시지와 함께 **실행을 거부한다**. 조용히 깨지지 않게 막아 두었다.
+
+```
+Found non-empty schema(s) "public" but no schema history table.
+```
+
+이전 스키마에서 자동 업그레이드는 제공하지 않는다.
+OAuth 로 가입한 계정에는 `password_hash` 로 채울 값이 없어 backfill 이 불가능하기 때문이다.
+아직 배포 전 단계이므로 **DB 재생성이 계약**이다.
+
+```bash
+psql -d postgres -c "DROP DATABASE ikgeoljune;"
+```
+
+```bash
+psql -d postgres -c "CREATE DATABASE ikgeoljune OWNER ikgeoljune;"
+```
+
+운영 데이터가 생긴 뒤라면 이 정책을 바꿔야 하며, 그때는 rename/backfill/drop 순서를 보장하는
+마이그레이션을 `V2__` 로 추가해야 한다.
+
 기본 접속 정보는 `src/main/resources/application.yml` 에 있고, 모두 환경변수로 덮어쓸 수 있다.
 
 | 환경변수 | 기본값 | 설명 |
