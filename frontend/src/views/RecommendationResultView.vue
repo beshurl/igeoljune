@@ -77,6 +77,10 @@ async function loadResult() {
 }
 onMounted(loadResult);
 
+const selectedCandidate = computed(
+  () => (rec.value?.candidates ?? []).find((c) => c.selectedAt) || null
+);
+
 async function like(c) {
   actionError.value = "";
   busyCard.value = c.candidateId;
@@ -86,6 +90,18 @@ async function like(c) {
     }
   } catch (e) {
     actionError.value = extractApiError(e, "피드백 등록에 실패했습니다.").message;
+  } finally {
+    busyCard.value = null;
+  }
+}
+async function toggleSelect(c) {
+  actionError.value = "";
+  busyCard.value = c.candidateId;
+  try {
+    if (c.selectedAt) await giftStore.deselectCandidate(c.candidateId);
+    else await giftStore.selectCandidate(c.candidateId);
+  } catch (e) {
+    actionError.value = extractApiError(e, "선택 처리에 실패했습니다.").message;
   } finally {
     busyCard.value = null;
   }
@@ -169,12 +185,21 @@ function goReRecommend() {
         </div>
 
         <p class="section-label">큐레이션 추천 후보 (Top {{ rec.candidates.length }})</p>
+        <InlineAlert
+          v-if="selectedCandidate"
+          type="success"
+          :message="`'${selectedCandidate.giftName}' 을(를) 최종 선물로 선택했습니다.`"
+        />
         <div class="cands">
           <article
             v-for="c in sortedCandidates"
             :key="c.candidateId"
             class="card cand"
-            :class="{ 'cand--like': c.feedback?.feedbackType === 'LIKE', 'cand--dislike': c.feedback?.feedbackType === 'DISLIKE' }"
+            :class="{
+              'cand--like': c.feedback?.feedbackType === 'LIKE',
+              'cand--dislike': c.feedback?.feedbackType === 'DISLIKE',
+              'cand--selected': !!c.selectedAt,
+            }"
           >
             <div class="cand__media">
               <span class="material-symbols-outlined">redeem</span>
@@ -197,9 +222,14 @@ function goReRecommend() {
               <div><strong>구매 전 살짝 확인하기</strong><p>{{ c.cautionNote }}</p></div>
             </div>
 
-            <div class="cand__fbState" v-if="c.feedback">
-              <span v-if="c.feedback.feedbackType === 'LIKE'" class="pill pill--accent">좋아요 등록됨</span>
-              <span v-else class="pill pill--danger">싫어요 · {{ labelOf(DISLIKE_REASON, c.feedback.dislikeReason) }}</span>
+            <div class="cand__fbState" v-if="c.feedback || c.selectedAt">
+              <span v-if="c.selectedAt" class="pill pill--accent">
+                <span class="material-symbols-outlined">check</span> 최종 선택됨
+              </span>
+              <span v-if="c.feedback?.feedbackType === 'LIKE'" class="pill pill--info">좋아요</span>
+              <span v-else-if="c.feedback?.feedbackType === 'DISLIKE'" class="pill pill--danger">
+                싫어요 · {{ labelOf(DISLIKE_REASON, c.feedback.dislikeReason) }}
+              </span>
             </div>
 
             <div class="cand__acts">
@@ -220,6 +250,15 @@ function goReRecommend() {
                 <span class="material-symbols-outlined">thumb_down</span> 싫어요
               </button>
             </div>
+            <button
+              class="btn btn--sm btn--block cand__select"
+              :class="c.selectedAt ? 'btn--secondary' : 'btn--primary'"
+              :disabled="busyCard === c.candidateId"
+              @click="toggleSelect(c)"
+            >
+              <span class="material-symbols-outlined">{{ c.selectedAt ? "close" : "redeem" }}</span>
+              {{ c.selectedAt ? "선택 취소" : "최종 선물로 선택" }}
+            </button>
           </article>
         </div>
 
@@ -343,6 +382,14 @@ function goReRecommend() {
   border-color: var(--danger);
   opacity: 0.72;
 }
+.cand--selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-soft);
+  opacity: 1;
+}
+.cand__fbState .material-symbols-outlined {
+  font-size: 13px;
+}
 .cand__media {
   position: relative;
   aspect-ratio: 4 / 3;
@@ -449,6 +496,12 @@ function goReRecommend() {
   flex: 1;
 }
 .cand__acts .material-symbols-outlined {
+  font-size: 15px;
+}
+.cand__select {
+  margin-top: 8px;
+}
+.cand__select .material-symbols-outlined {
   font-size: 15px;
 }
 .rerec {

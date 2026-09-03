@@ -45,3 +45,18 @@ export function fetchCandidateFeedback(candidateId) {
 export function deleteCandidateFeedback(candidateId) {
   return http.delete(`/recommendation-candidates/${candidateId}/feedback`);
 }
+
+// SELECTION 최종 선물 선택 (추천 실행당 1건) — 응답: 선택된 후보(selectedAt 포함)
+export function selectCandidate(candidateId) {
+  return http.put(`/recommendation-candidates/${candidateId}/selection`);
+}
+
+// SELECTION 선택 상태 조회 (없으면 404)
+export function fetchCandidateSelection(candidateId) {
+  return http.get(`/recommendation-candidates/${candidateId}/selection`);
+}
+
+// SELECTION 최종 선물 선택 취소 (204)
+export function deselectCandidate(candidateId) {
+  return http.delete(`/recommendation-candidates/${candidateId}/selection`);
+}

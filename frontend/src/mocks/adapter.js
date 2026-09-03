@@ -55,6 +55,7 @@ function makeCandidates() {
       consideredInfo: "홈카페·인테리어 취향 · 생일 · 4~6만 원 예산 · 텀블러 보유",
       cautionNote: "이미 보유한 드립 도구가 있는지 확인해 주세요.",
       recommendRank: 1,
+      selectedAt: null,
       feedback: null,
     },
     {
@@ -68,6 +69,7 @@ function makeCandidates() {
       consideredInfo: "홈카페 취향 · 생일 · 소모품 선호",
       cautionNote: "원두 로스팅 강도 선호를 확인하면 좋습니다.",
       recommendRank: 2,
+      selectedAt: null,
       feedback: null,
     },
     {
@@ -81,6 +83,7 @@ function makeCandidates() {
       consideredInfo: "인테리어·무향 선호 · 생일",
       cautionNote: "색상 선호가 확인되지 않아 무채색 기준으로 제안했습니다.",
       recommendRank: 3,
+      selectedAt: null,
       feedback: null,
     },
   ];
@@ -120,6 +123,14 @@ function findCandidate(candidateId) {
   }
   return null;
 }
+function findCandidateWithRec(candidateId) {
+  for (const rec of Object.values(state.recommendations)) {
+    const c = rec.candidates.find((x) => String(x.candidateId) === String(candidateId));
+    if (c) return { rec, candidate: c };
+  }
+  return {};
+}
+const withFeedback = (c) => ({ ...c, feedback: state.feedbacks[c.candidateId] ?? null });
 
 const routes = [
   // ---- 인증 ----
@@ -320,6 +331,25 @@ const routes = [
     delete state.feedbacks[m[1]];
     const c = findCandidate(m[1]);
     if (c) c.feedback = null;
+    return { __status: 204 };
+  }],
+
+  // ---- 최종 선물 선택 (추천 실행당 1건) ----
+  ["PUT", /^\/recommendation-candidates\/(\d+)\/selection$/, (m) => {
+    const { rec, candidate } = findCandidateWithRec(m[1]);
+    if (!candidate) return err(404, "CANDIDATE_NOT_FOUND", "추천 후보를 찾을 수 없습니다.");
+    rec.candidates.forEach((c) => (c.selectedAt = null));
+    candidate.selectedAt = now();
+    return withFeedback(candidate);
+  }],
+  ["GET", /^\/recommendation-candidates\/(\d+)\/selection$/, (m) => {
+    const c = findCandidate(m[1]);
+    if (!c || !c.selectedAt) return err(404, "SELECTION_NOT_FOUND", "선택된 후보가 없습니다.");
+    return withFeedback(c);
+  }],
+  ["DELETE", /^\/recommendation-candidates\/(\d+)\/selection$/, (m) => {
+    const c = findCandidate(m[1]);
+    if (c) c.selectedAt = null;
     return { __status: 204 };
   }],
 ];

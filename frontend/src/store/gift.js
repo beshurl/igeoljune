@@ -6,6 +6,8 @@ import {
   fetchRecommendation,
   requestReRecommendation,
   putCandidateFeedback,
+  selectCandidate as apiSelectCandidate,
+  deselectCandidate as apiDeselectCandidate,
 } from "../api/recommendations";
 
 export const useGiftStore = defineStore("gift", {
@@ -80,6 +82,20 @@ export const useGiftStore = defineStore("gift", {
       } finally {
         this.loading = false;
       }
+    },
+    // SCR-AI-001 최종 선물 선택 (추천 실행당 1건 — 다른 후보 선택은 자동 해제)
+    async selectCandidate(candidateId) {
+      const updated = await apiSelectCandidate(candidateId);
+      for (const c of this.recommendation?.candidates ?? []) {
+        if (c.candidateId === candidateId) Object.assign(c, updated);
+        else c.selectedAt = null;
+      }
+      return updated;
+    },
+    async deselectCandidate(candidateId) {
+      await apiDeselectCandidate(candidateId);
+      const c = this.recommendation?.candidates?.find((x) => x.candidateId === candidateId);
+      if (c) c.selectedAt = null;
     },
   },
 });
