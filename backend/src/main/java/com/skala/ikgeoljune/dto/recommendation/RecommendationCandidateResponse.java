@@ -18,6 +18,7 @@ public record RecommendationCandidateResponse(
         String cautionNote,
         Integer recommendRank,
         OffsetDateTime createdAt,
+        OffsetDateTime selectedAt,
         FeedbackResponse feedback
 ) {
     public static RecommendationCandidateResponse of(RecommendationCandidate candidate, Feedback feedback) {
@@ -32,6 +33,7 @@ public record RecommendationCandidateResponse(
                 candidate.getCautionNote(),
                 candidate.getRecommendRank(),
                 candidate.getCreatedAt(),
+                candidate.getSelectedAt(),
                 feedback == null ? null : FeedbackResponse.from(feedback)
         );
     }

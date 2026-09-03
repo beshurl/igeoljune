@@ -12,6 +12,9 @@ public interface RecommendationCandidateRepository extends JpaRepository<Recomme
 
     List<RecommendationCandidate> findByRecommendationIdOrderByRecommendRankAsc(Long recommendationId);
 
+    /** 한 추천 실행 안에서 이미 선택된 후보 (최대 1건) */
+    List<RecommendationCandidate> findByRecommendationIdAndSelectedAtIsNotNull(Long recommendationId);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("delete from RecommendationCandidate c where c.recommendation.id in :recommendationIds")
     void deleteByRecommendationIds(@Param("recommendationIds") List<Long> recommendationIds);

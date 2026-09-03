@@ -60,6 +60,10 @@ public class RecommendationCandidate {
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
+    /** 최종 선물로 선택한 시각. 선택하지 않았으면 null */
+    @Column(name = "selected_at")
+    private OffsetDateTime selectedAt;
+
     @PrePersist
     void onCreate() {
         this.createdAt = OffsetDateTime.now();
@@ -86,5 +90,19 @@ public class RecommendationCandidate {
                                                  String cautionNote, Integer recommendRank) {
         return new RecommendationCandidate(recommendation, giftName, giftCategory, estimatedPriceMin,
                 estimatedPriceMax, recommendationReason, consideredInfo, cautionNote, recommendRank);
+    }
+
+    /** 최종 선물로 선택한다. */
+    public void select() {
+        this.selectedAt = OffsetDateTime.now();
+    }
+
+    /** 선택을 취소한다. */
+    public void deselect() {
+        this.selectedAt = null;
+    }
+
+    public boolean isSelected() {
+        return this.selectedAt != null;
     }
 }
