@@ -13,11 +13,12 @@ export const useRecipientStore = defineStore("recipient", {
   }),
   getters: {
     selectedRecipient: (state) =>
-      state.recipients.find((r) => r.id === state.selectedRecipientId) || null,
+      state.recipients.find((r) => r.recipientId === state.selectedRecipientId) || null,
   },
   actions: {
     async loadRecipients() {
-      this.recipients = await fetchRecipients();
+      const res = await fetchRecipients();
+      this.recipients = res.items ?? [];
     },
     async addRecipient(payload) {
       const created = await createRecipient(payload);
@@ -26,13 +27,14 @@ export const useRecipientStore = defineStore("recipient", {
     },
     async editRecipient(recipientId, payload) {
       const updated = await updateRecipient(recipientId, payload);
-      const idx = this.recipients.findIndex((r) => r.id === recipientId);
+      const idx = this.recipients.findIndex((r) => r.recipientId === recipientId);
       if (idx !== -1) this.recipients[idx] = updated;
       return updated;
     },
     async removeRecipient(recipientId) {
       await deleteRecipient(recipientId);
-      this.recipients = this.recipients.filter((r) => r.id !== recipientId);
+      this.recipients = this.recipients.filter((r) => r.recipientId !== recipientId);
+      if (this.selectedRecipientId === recipientId) this.selectedRecipientId = null;
     },
     select(recipientId) {
       this.selectedRecipientId = recipientId;
