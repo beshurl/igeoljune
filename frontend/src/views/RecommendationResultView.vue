@@ -20,7 +20,11 @@ const dislikeReason = ref("TASTE_MISMATCH");
 
 const rec = computed(() => giftStore.recommendation);
 const cond = computed(() => giftStore.condition);
-const ready = computed(() => rec.value && rec.value.status === "SUCCESS");
+const ready = computed(
+  () =>
+    rec.value &&
+    (rec.value.status === "SUCCESS" || (rec.value.candidates?.length ?? 0) > 0)
+);
 const roundLabel = computed(() => (rec.value?.previousRecommendationId ? "재추천 결과" : "1차 추천"));
 const sortedCandidates = computed(() =>
   [...(rec.value?.candidates ?? [])].sort(
@@ -125,7 +129,7 @@ function goReRecommend() {
 
       <div v-else-if="!ready" class="loading-block">
         <div class="spinner" />
-        AI가 대화 맥락과 예산을 분석해 추천을 생성하고 있어요...
+        추천 결과를 불러오는 중...
       </div>
 
       <template v-else>

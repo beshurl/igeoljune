@@ -11,12 +11,12 @@ export function fetchGiftCondition(conditionId) {
   return http.get(`/gift-conditions/${conditionId}`);
 }
 
-// RECOMMEND-001 AI 추천 요청 — 응답: 202 { recommendationId, status: "PROCESSING", ... }
+// RECOMMEND-001 AI 추천 요청 — 응답: 201 { recommendationId, status, candidates, ... } (Mock AI, 즉시 반환)
 export function requestRecommendation(conditionId) {
   return http.post(`/gift-conditions/${conditionId}/recommendations`);
 }
 
-// RECOMMEND-002 추천 결과 조회 — status: PROCESSING | SUCCESS | FAILED
+// RECOMMEND-002 추천 결과 조회 — status: SUCCESS | FAILED
 export function fetchRecommendation(recommendationId) {
   return http.get(`/recommendations/${recommendationId}`);
 }
@@ -26,7 +26,7 @@ export function fetchRecommendationsByCondition(conditionId) {
   return http.get(`/gift-conditions/${conditionId}/recommendations`);
 }
 
-// RECOMMEND-004 피드백 반영 재추천 — 응답: 202 { recommendationId(new), previousRecommendationId, status: "PROCESSING" }
+// RECOMMEND-004 피드백 반영 재추천 — 응답: 201 { recommendationId(new), previousRecommendationId, candidates, ... }
 export function requestReRecommendation(recommendationId) {
   return http.post(`/recommendations/${recommendationId}/re-recommend`);
 }

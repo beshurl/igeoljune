@@ -86,33 +86,27 @@ function makeCandidates() {
   ];
 }
 
+// 우리 서비스는 AI 를 Mock 으로 대체 → 처리 중 단계 없이 생성 즉시 SUCCESS + 후보 전체
 function makeRecommendation(conditionId, previousRecommendationId = null) {
   const recommendationId = nextId();
   const rec = {
     recommendationId,
     conditionId,
     previousRecommendationId,
-    status: "PROCESSING",
+    status: "SUCCESS",
     failure: null,
     createdAt: now(),
     updatedAt: now(),
-    candidates: [],
-    _readyAt: Date.now() + 1400, // 이 시각 이후 GET 하면 SUCCESS
+    candidates: makeCandidates(),
   };
   state.recommendations[recommendationId] = rec;
   return rec;
 }
 
 function viewRecommendation(rec) {
-  if (rec.status === "PROCESSING" && Date.now() >= rec._readyAt) {
-    rec.status = "SUCCESS";
-    rec.updatedAt = now();
-    rec.candidates = makeCandidates();
-  }
-  const { _readyAt, ...view } = rec;
   return {
-    ...view,
-    candidates: view.candidates.map((c) => ({
+    ...rec,
+    candidates: rec.candidates.map((c) => ({
       ...c,
       feedback: state.feedbacks[c.candidateId] ?? null,
     })),
@@ -136,6 +130,7 @@ const routes = [
     }
     state.emails.add(b.email);
     return {
+      __status: 201,
       userId: nextId(),
       email: b.email,
       name: b.name || "새 사용자",
@@ -162,7 +157,7 @@ const routes = [
   ["POST", /^\/recipients$/, (_m, b) => {
     const r = { recipientId: nextId(), ...b, createdAt: now(), updatedAt: now() };
     state.recipients.push(r);
-    return r;
+    return { __status: 201, ...r };
   }],
   ["GET", /^\/recipients\/(\d+)$/, (m) =>
     state.recipients.find((r) => r.recipientId === +m[1]) || { __status: 404 }],
@@ -187,7 +182,7 @@ const routes = [
     }
     const pref = { preferenceId: nextId(), recipientId: +m[1], ...b, sourceType: "DIRECT" };
     (state.preferences[m[1]] ??= []).push(pref);
-    return pref;
+    return { __status: 201, ...pref };
   }],
   ["POST", /^\/recipients\/(\d+)\/preferences\/bulk$/, (m, b) => {
     const items = b.items ?? [];
@@ -206,7 +201,7 @@ const routes = [
       sourceType: b.sourceType ?? "KAKAO",
     }));
     (state.preferences[m[1]] ??= []).push(...saved);
-    return { items: saved, totalCount: saved.length };
+    return { __status: 201, items: saved, totalCount: saved.length };
   }],
   ["PATCH", /^\/preferences\/(\d+)$/, (_m, b) => ({ preferenceId: +_m[1], ...b })],
   ["DELETE", /^\/preferences\/(\d+)$/, () => ({ __status: 204 })],
@@ -223,7 +218,7 @@ const routes = [
     }
     const g = { previousGiftId: nextId(), recipientId: +m[1], ...b, createdAt: now(), updatedAt: now() };
     (state.previousGifts[m[1]] ??= []).push(g);
-    return g;
+    return { __status: 201, ...g };
   }],
   ["PATCH", /^\/previous-gifts\/(\d+)$/, (_m, b) => ({ previousGiftId: +_m[1], ...b })],
   ["DELETE", /^\/previous-gifts\/(\d+)$/, (m) => {
@@ -238,17 +233,26 @@ const routes = [
 
   // ---- 추천 조건 ----
   ["POST", /^\/recipients\/(\d+)\/gift-conditions$/, (m, b) => {
-    if (b.budgetMin != null && b.budgetMax != null && Number(b.budgetMin) > Number(b.budgetMax)) {
+    const fe = [];
+    const badMin = b.budgetMin == null || b.budgetMin === "" || Number.isNaN(Number(b.budgetMin));
+    const badMax = b.budgetMax == null || b.budgetMax === "" || Number.isNaN(Number(b.budgetMax));
+    if (badMin) fe.push({ field: "budgetMin", reason: "최소 예산은 필수입니다." });
+    if (badMax) fe.push({ field: "budgetMax", reason: "최대 예산은 필수입니다." });
+    if (!b.occasionType) fe.push({ field: "occasionType", reason: "선물 목적은 필수입니다." });
+    if (fe.length) return err(400, "INVALID_INPUT", "입력값을 확인해 주세요.", fe);
+    if (Number(b.budgetMin) < 0 || Number(b.budgetMax) < 0) {
+      return err(400, "INVALID_INPUT", "예산은 0 이상이어야 합니다.", [
+        { field: "budgetMin", reason: "0 이상" },
+      ]);
+    }
+    if (Number(b.budgetMin) > Number(b.budgetMax)) {
       return err(400, "INVALID_BUDGET_RANGE", "최소 예산은 최대 예산보다 클 수 없습니다.", [
         { field: "budgetMax", reason: "최소 예산 이상이어야 합니다." },
       ]);
     }
-    if (!b.occasionType) {
-      return err(400, "INVALID_INPUT", "선물 목적은 필수입니다.", [{ field: "occasionType", reason: "필수" }]);
-    }
     const c = { conditionId: nextId(), recipientId: +m[1], ...b, createdAt: now() };
     state.conditions[c.conditionId] = c;
-    return c;
+    return { __status: 201, ...c };
   }],
   ["GET", /^\/gift-conditions\/(\d+)$/, (m) => state.conditions[m[1]] || { __status: 404 }],
   ["PATCH", /^\/gift-conditions\/(\d+)$/, (m, b) => {
@@ -270,7 +274,7 @@ const routes = [
   ["POST", /^\/gift-conditions\/(\d+)\/recommendations$/, (m) => {
     if (!state.conditions[m[1]]) return err(404, "GIFT_CONDITION_NOT_FOUND", "추천 조건을 찾을 수 없습니다.");
     const rec = makeRecommendation(+m[1]);
-    return { __status: 202, ...viewRecommendation(rec) };
+    return { __status: 201, ...viewRecommendation(rec) };
   }],
   ["GET", /^\/gift-conditions\/(\d+)\/recommendations$/, (m) => {
     const list = Object.values(state.recommendations)
@@ -287,7 +291,7 @@ const routes = [
     const prev = state.recommendations[m[1]];
     if (!prev) return err(404, "RECOMMENDATION_NOT_FOUND", "추천 결과를 찾을 수 없습니다.");
     const rec = makeRecommendation(prev.conditionId, +m[1]);
-    return { __status: 202, ...viewRecommendation(rec) };
+    return { __status: 201, ...viewRecommendation(rec) };
   }],
 
   // ---- 피드백 ----
