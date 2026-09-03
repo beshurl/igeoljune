@@ -13,9 +13,11 @@ export function extractApiError(
       }
     }
   }
+  // 응답 본문 메시지 > 호출부 fallback > (fallback 이 비어있을 때만) axios 메시지
+  // axios 네트워크 오류의 e.message 는 "Network Error" 라서 fallback 보다 우선하면 안 된다.
   return {
     code: data?.code || null,
-    message: data?.message || e?.message || fallback,
+    message: data?.message || fallback || e?.message || "요청을 처리하지 못했습니다.",
     fieldErrors,
   };
 }

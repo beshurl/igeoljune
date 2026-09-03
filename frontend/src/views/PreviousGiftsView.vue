@@ -27,6 +27,8 @@ async function load() {
   loading.value = true;
   loadError.value = "";
   try {
+    recipientStore.select(rid.value);
+    if (!recipientStore.recipients.length) await recipientStore.loadRecipients();
     const res = await fetchPreviousGifts(rid.value);
     gifts.value = res.items ?? [];
   } catch (e) {
@@ -35,11 +37,7 @@ async function load() {
     loading.value = false;
   }
 }
-onMounted(async () => {
-  recipientStore.select(rid.value);
-  if (!recipientStore.recipients.length) await recipientStore.loadRecipients();
-  await load();
-});
+onMounted(load);
 
 async function add() {
   error.value = "";

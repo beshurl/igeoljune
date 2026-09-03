@@ -39,17 +39,33 @@ const form = reactive({
   avoidGiftNote: "",
 });
 const submitting = ref(false);
+const submitted = ref(false);
 const error = ref("");
 const fieldErrors = ref({});
 
+const isBudget = (v) => v != null && v !== "" && !Number.isNaN(Number(v));
+const budgetMissing = computed(() => !isBudget(form.budgetMin) || !isBudget(form.budgetMax));
+const budgetNegative = computed(
+  () => (isBudget(form.budgetMin) && Number(form.budgetMin) < 0) ||
+    (isBudget(form.budgetMax) && Number(form.budgetMax) < 0)
+);
 const budgetInvalid = computed(
   () =>
-    form.budgetMin != null &&
-    form.budgetMax != null &&
+    isBudget(form.budgetMin) &&
+    isBudget(form.budgetMax) &&
     Number(form.budgetMin) > Number(form.budgetMax)
 );
-const budgetNegative = computed(
-  () => Number(form.budgetMin) < 0 || Number(form.budgetMax) < 0
+const budgetError = computed(() => {
+  if (!submitted.value && !fieldErrors.value.budgetMin && !fieldErrors.value.budgetMax) return "";
+  if (fieldErrors.value.budgetMax) return fieldErrors.value.budgetMax;
+  if (fieldErrors.value.budgetMin) return fieldErrors.value.budgetMin;
+  if (budgetMissing.value) return "최소·최대 예산을 모두 입력해 주세요.";
+  if (budgetNegative.value) return "예산은 0 이상이어야 합니다.";
+  if (budgetInvalid.value) return "최소 예산은 최대 예산보다 클 수 없습니다.";
+  return "";
+});
+const canSubmit = computed(
+  () => !budgetMissing.value && !budgetNegative.value && !budgetInvalid.value
 );
 
 const recipient = computed(
@@ -58,7 +74,11 @@ const recipient = computed(
 
 onMounted(async () => {
   recipientStore.select(rid.value);
-  if (!recipientStore.recipients.length) await recipientStore.loadRecipients();
+  try {
+    if (!recipientStore.recipients.length) await recipientStore.loadRecipients();
+  } catch (e) {
+    error.value = extractApiError(e, "대상 정보를 불러오지 못했습니다.").message;
+  }
 });
 
 function applyPreset(p) {
@@ -73,17 +93,10 @@ function goKakao() {
 
 async function submit() {
   if (submitting.value) return;
+  submitted.value = true;
   error.value = "";
   fieldErrors.value = {};
-  if (budgetNegative.value) {
-    error.value = "예산은 0 이상이어야 합니다.";
-    return;
-  }
-  if (budgetInvalid.value) {
-    error.value = "최소 예산은 최대 예산보다 클 수 없습니다.";
-    fieldErrors.value = { budgetMax: "최소 예산 이상이어야 합니다." };
-    return;
-  }
+  if (!canSubmit.value) return; // budgetError 가 화면에 표시됨
   submitting.value = true;
   try {
     await giftStore.submitCondition(rid.value, { ...form });
@@ -153,9 +166,7 @@ async function submit() {
               {{ p.label }}
             </button>
           </div>
-          <p v-if="budgetInvalid || fieldErrors.budgetMax" class="form-error">
-            {{ fieldErrors.budgetMax || "최소 예산은 최대 예산보다 클 수 없습니다." }}
-          </p>
+          <p v-if="budgetError" class="form-error">{{ budgetError }}</p>
         </div>
 
         <div class="field">
@@ -189,7 +200,7 @@ async function submit() {
         <span class="muted">제외 조건에 해당하는 후보는 생성되지 않습니다.</span>
         <button
           class="btn btn--primary btn--lg"
-          :disabled="submitting || budgetInvalid || budgetNegative"
+          :disabled="submitting"
           @click="submit"
         >
           <span class="material-symbols-outlined">auto_awesome</span>

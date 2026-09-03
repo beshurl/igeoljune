@@ -65,7 +65,10 @@ src/
 - 목록 응답 `{ items: [], totalCount: n }`
 - 오류 응답 `{ code, message, fieldErrors: [{ field, reason }] }`
 - 회원가입 응답에 **토큰 없음** → 가입 후 로그인 화면으로 이동
-- 추천 요청 `202` → `GET /recommendations/{id}` 를 `status: SUCCESS` 까지 폴링
+- 추천 요청은 처리 중 단계 없이 `201` 응답에 후보 전체가 즉시 온다 (AI 를 Mock 으로 대체). `GET /recommendations/{id}` 는 재진입·새로고침용
+- 미지원 (프론트 화면 범위 밖 — 화면 정의 §1.7 에 없음):
+  - `USER-003` 회원 탈퇴 (`DELETE /users/me`) — 마이페이지 화면 없음
+  - `CONDITION-003` / `CONDITION-004` 추천 조건 수정·삭제 — 조건은 SCR-GIFT-001 에서 생성만 함
 - 후보 순위 필드명 = **`recommendRank`** (API.yml 기준)
 - enum 값: `constants/enums.js` 와 백엔드 도메인 enum 이 동일해야 함
   - `relationship` / `ageGroup` / `gender` 는 자유 문자열 — **실제 허용 값 목록을 팀에서 확정** (`COWORKER` vs `COLLEAGUE` 등)
