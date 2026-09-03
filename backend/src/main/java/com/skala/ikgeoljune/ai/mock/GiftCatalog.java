@@ -6,7 +6,7 @@ import java.util.List;
  * Mock AI 가 사용하는 선물 카탈로그.
  * 실제 LLM 연동 시에는 사용하지 않으며, 프론트엔드 개발용 고정 데이터다.
  */
-final class GiftCatalog {
+class GiftCatalog {
 
     record Item(
             String name,

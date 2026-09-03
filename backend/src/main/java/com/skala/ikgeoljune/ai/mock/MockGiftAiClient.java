@@ -3,7 +3,6 @@ package com.skala.ikgeoljune.ai.mock;
 import com.skala.ikgeoljune.ai.*;
 import com.skala.ikgeoljune.domain.PreferenceType;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -71,11 +70,8 @@ public class MockGiftAiClient implements GiftAiClient {
             new KeywordRule(List.of("전자기기", "가전"), PreferenceType.DISLIKED_CATEGORY, "전자기기")
     );
 
-    private final long latencyMs;
-
-    public MockGiftAiClient(@Value("${app.ai.mock-latency-ms:0}") long latencyMs) {
-        this.latencyMs = latencyMs;
-    }
+    /** 예산 내 후보가 충분해도 항상 끼워 넣는 예산 밖 대안 개수 */
+    private static final int MAX_ALTERNATIVES = 1;
 
     // ------------------------------------------------------------------
     // KAKAO-001
@@ -86,8 +82,6 @@ public class MockGiftAiClient implements GiftAiClient {
         if (!StringUtils.hasText(text)) {
             throw new AiException("분석할 대화 내용이 비어 있습니다.");
         }
-        simulateLatency();
-
         String normalized = text.toLowerCase(Locale.KOREAN);
         Map<String, AiExtractedPreference> found = new LinkedHashMap<>();
 
@@ -120,48 +114,79 @@ public class MockGiftAiClient implements GiftAiClient {
     // ------------------------------------------------------------------
     @Override
     public List<AiGiftCandidate> recommendGifts(AiRecommendationContext context) {
-        simulateLatency();
-
         Exclusions exclusions = Exclusions.from(context);
         List<String> positiveKeywords = positiveKeywords(context);
 
-        List<Scored> scored = new ArrayList<>();
+        List<Scored> inBudget = new ArrayList<>();
+        List<Scored> alternatives = new ArrayList<>();
         for (GiftCatalog.Item item : GiftCatalog.ITEMS) {
             if (exclusions.isExcluded(item)) {
                 continue;
             }
-            // 예산과 가격대가 전혀 겹치지 않는 상품은 후보에서 제외한다.
-            // (감점만 하면 예산 밖 상품에 예산 기준 가격을 붙여 응답하게 된다)
-            if (!overlapsBudget(item, context.condition())) {
-                continue;
-            }
             List<String> matched = matchedKeywords(item, positiveKeywords);
-            int score = score(context, item, matched);
-            scored.add(new Scored(item, score, matched));
+            Scored s = new Scored(item, score(context, item, matched), matched);
+            if (overlapsBudget(item, context.condition())) {
+                inBudget.add(s);
+            } else {
+                alternatives.add(s);
+            }
         }
 
-        scored.sort(Comparator.comparingInt(Scored::score).reversed()
-                .thenComparing(s -> s.item().name()));
+        Comparator<Scored> byScore = Comparator.comparingInt(Scored::score).reversed()
+                .thenComparing(s -> s.item().name());
+        inBudget.sort(byScore);
+        // 대안은 예산에서 가장 덜 벗어난 순서로 제안한다.
+        alternatives.sort(Comparator
+                .comparingInt((Scored s) -> budgetGap(s.item(), context.condition()))
+                .thenComparing(byScore));
 
-        List<Scored> picked = scored.stream().limit(context.candidateCount()).toList();
+        List<Scored> picked = pick(inBudget, alternatives, context.candidateCount());
         if (picked.isEmpty()) {
-            throw new AiException("예산 %,d~%,d원과 제외 조건을 모두 만족하는 선물 후보를 찾지 못했습니다."
-                    .formatted(context.condition().budgetMin(), context.condition().budgetMax()));
+            throw new AiException("제외 조건을 만족하는 선물 후보를 찾지 못했습니다.");
         }
 
         List<AiGiftCandidate> candidates = new ArrayList<>();
         for (Scored s : picked) {
+            boolean outOfBudget = !overlapsBudget(s.item(), context.condition());
             candidates.add(new AiGiftCandidate(
                     s.item().name(),
                     s.item().category(),
-                    priceMin(s.item(), context),
-                    priceMax(s.item(), context),
-                    buildReason(context, s),
-                    buildConsideredInfo(context, s),
+                    // 예산으로 보정하지 않고 카탈로그 실제 가격을 그대로 사용한다.
+                    s.item().priceMin(),
+                    s.item().priceMax(),
+                    buildReason(context, s, outOfBudget),
+                    buildConsideredInfo(context, s, outOfBudget),
                     s.item().cautionNote()
             ));
         }
         return candidates;
+    }
+
+    /**
+     * 예산 내 후보를 우선하되, 기획의 "예산보다 낮거나 높은 대안 제공"을 위해
+     * 예산 밖 후보도 최대 {@value #MAX_ALTERNATIVES} 건까지 섞어 반환한다.
+     */
+    private List<Scored> pick(List<Scored> inBudget, List<Scored> alternatives, int count) {
+        int alternativeQuota = Math.min(alternatives.size(),
+                Math.max(MAX_ALTERNATIVES, count - inBudget.size()));
+        int inBudgetQuota = Math.min(inBudget.size(), count - alternativeQuota);
+        // 예산 내 후보가 부족하면 대안으로 남은 자리를 채운다.
+        alternativeQuota = Math.min(alternatives.size(), count - inBudgetQuota);
+
+        List<Scored> picked = new ArrayList<>(inBudget.subList(0, inBudgetQuota));
+        picked.addAll(alternatives.subList(0, alternativeQuota));
+        return picked;
+    }
+
+    /** 예산에서 벗어난 정도(원). 예산 안이면 0 */
+    private int budgetGap(GiftCatalog.Item item, AiGiftConditionSpec condition) {
+        if (item.priceMax() < condition.budgetMin()) {
+            return condition.budgetMin() - item.priceMax();
+        }
+        if (item.priceMin() > condition.budgetMax()) {
+            return item.priceMin() - condition.budgetMax();
+        }
+        return 0;
     }
 
     // ------------------------------------------------------------------
@@ -199,18 +224,6 @@ public class MockGiftAiClient implements GiftAiClient {
     /** 상품 가격대와 예산이 겹치는지 */
     private boolean overlapsBudget(GiftCatalog.Item item, AiGiftConditionSpec condition) {
         return item.priceMin() <= condition.budgetMax() && item.priceMax() >= condition.budgetMin();
-    }
-
-    /**
-     * 예상 가격은 카탈로그 가격대와 예산의 교집합이다.
-     * 후보는 모두 예산과 겹치므로 카탈로그 가격 범위를 벗어난 값이 나오지 않는다.
-     */
-    private Integer priceMin(GiftCatalog.Item item, AiRecommendationContext context) {
-        return Math.max(item.priceMin(), context.condition().budgetMin());
-    }
-
-    private Integer priceMax(GiftCatalog.Item item, AiRecommendationContext context) {
-        return Math.min(item.priceMax(), context.condition().budgetMax());
     }
 
     private List<String> positiveKeywords(AiRecommendationContext context) {
@@ -274,7 +287,7 @@ public class MockGiftAiClient implements GiftAiClient {
     // ------------------------------------------------------------------
     // 문구 생성
     // ------------------------------------------------------------------
-    private String buildReason(AiRecommendationContext context, Scored scored) {
+    private String buildReason(AiRecommendationContext context, Scored scored, boolean outOfBudget) {
         StringBuilder sb = new StringBuilder();
         String name = context.recipient().name();
 
@@ -289,10 +302,13 @@ public class MockGiftAiClient implements GiftAiClient {
                     .append(" 관계에서 무난하게 받아들여지는 선물입니다. ");
         }
 
-        sb.append(context.condition().occasionType())
-                .append(" 상황과 ")
-                .append(formatBudget(context.condition()))
-                .append(" 예산에 맞는 가격대입니다.");
+        sb.append(context.condition().occasionType()).append(" 상황을 고려했습니다. ");
+        if (outOfBudget) {
+            sb.append("요청하신 ").append(formatBudget(context.condition()))
+                    .append(" 예산을 벗어나지만 함께 검토해 볼 만한 대안입니다.");
+        } else {
+            sb.append(formatBudget(context.condition())).append(" 예산에 맞는 가격대입니다.");
+        }
 
         if (context.isReRecommendation()) {
             sb.append(" 이전 추천에서 마음에 들지 않았던 항목은 제외하고 다시 골랐습니다.");
@@ -300,13 +316,13 @@ public class MockGiftAiClient implements GiftAiClient {
         return sb.toString();
     }
 
-    private String buildConsideredInfo(AiRecommendationContext context, Scored scored) {
+    private String buildConsideredInfo(AiRecommendationContext context, Scored scored, boolean outOfBudget) {
         List<String> parts = new ArrayList<>();
         if (!scored.matched().isEmpty()) {
             parts.add(String.join(", ", scored.matched()));
         }
         parts.add(context.condition().occasionType());
-        parts.add(formatBudget(context.condition()));
+        parts.add(formatBudget(context.condition()) + (outOfBudget ? " 예산 외 대안" : " 예산 내"));
         if (!context.previousGifts().isEmpty()) {
             parts.add("과거 선물 " + context.previousGifts().size() + "건 중복 회피");
         }
@@ -416,15 +432,4 @@ public class MockGiftAiClient implements GiftAiClient {
         return markers.stream().anyMatch(text::contains);
     }
 
-    private void simulateLatency() {
-        if (latencyMs <= 0) {
-            return;
-        }
-        try {
-            Thread.sleep(latencyMs);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new AiException("AI 처리가 중단되었습니다.", e);
-        }
-    }
 }
