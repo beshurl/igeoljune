@@ -130,6 +130,11 @@ public class MockGiftAiClient implements GiftAiClient {
             if (exclusions.isExcluded(item)) {
                 continue;
             }
+            // 예산과 가격대가 전혀 겹치지 않는 상품은 후보에서 제외한다.
+            // (감점만 하면 예산 밖 상품에 예산 기준 가격을 붙여 응답하게 된다)
+            if (!overlapsBudget(item, context.condition())) {
+                continue;
+            }
             List<String> matched = matchedKeywords(item, positiveKeywords);
             int score = score(context, item, matched);
             scored.add(new Scored(item, score, matched));
@@ -140,7 +145,8 @@ public class MockGiftAiClient implements GiftAiClient {
 
         List<Scored> picked = scored.stream().limit(context.candidateCount()).toList();
         if (picked.isEmpty()) {
-            throw new AiException("조건에 맞는 선물 후보를 찾지 못했습니다.");
+            throw new AiException("예산 %,d~%,d원과 제외 조건을 모두 만족하는 선물 후보를 찾지 못했습니다."
+                    .formatted(context.condition().budgetMin(), context.condition().budgetMax()));
         }
 
         List<AiGiftCandidate> candidates = new ArrayList<>();
@@ -164,15 +170,11 @@ public class MockGiftAiClient implements GiftAiClient {
     private int score(AiRecommendationContext context, GiftCatalog.Item item, List<String> matched) {
         int score = matched.size() * 6;
 
+        // 이 시점의 후보는 모두 예산과 겹친다. 예산 중앙값에 가까울수록 가점.
         AiGiftConditionSpec condition = context.condition();
-        if (isWithinBudget(item, condition)) {
-            score += 12;
-            // 예산 중앙값에 가까울수록 가점
-            int budgetCenter = (condition.budgetMin() + condition.budgetMax()) / 2;
-            int itemCenter = (item.priceMin() + item.priceMax()) / 2;
-            int gap = Math.abs(budgetCenter - itemCenter);
-            score += Math.max(0, 6 - gap / 20000);
-        }
+        int budgetCenter = (condition.budgetMin() + condition.budgetMax()) / 2;
+        int itemCenter = (item.priceMin() + item.priceMax()) / 2;
+        score += Math.max(0, 6 - Math.abs(budgetCenter - itemCenter) / 20000);
 
         // WISH_ITEM 은 가장 강한 신호로 취급한다.
         for (AiPreference preference : context.preferences()) {
@@ -194,18 +196,21 @@ public class MockGiftAiClient implements GiftAiClient {
         return score;
     }
 
-    private boolean isWithinBudget(GiftCatalog.Item item, AiGiftConditionSpec condition) {
+    /** 상품 가격대와 예산이 겹치는지 */
+    private boolean overlapsBudget(GiftCatalog.Item item, AiGiftConditionSpec condition) {
         return item.priceMin() <= condition.budgetMax() && item.priceMax() >= condition.budgetMin();
     }
 
-    /** 예산 범위 안으로 잘라 낸 예상 가격 */
+    /**
+     * 예상 가격은 카탈로그 가격대와 예산의 교집합이다.
+     * 후보는 모두 예산과 겹치므로 카탈로그 가격 범위를 벗어난 값이 나오지 않는다.
+     */
     private Integer priceMin(GiftCatalog.Item item, AiRecommendationContext context) {
         return Math.max(item.priceMin(), context.condition().budgetMin());
     }
 
     private Integer priceMax(GiftCatalog.Item item, AiRecommendationContext context) {
-        int max = Math.min(item.priceMax(), context.condition().budgetMax());
-        return Math.max(max, priceMin(item, context));
+        return Math.min(item.priceMax(), context.condition().budgetMax());
     }
 
     private List<String> positiveKeywords(AiRecommendationContext context) {
