@@ -1,48 +1,82 @@
 package com.skala.ikgeoljune.domain;
 
 import jakarta.persistence.*;
-import lombok.*;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
-// SCR-GIFT-001 · UC7 (대표 흐름) 선물 조건 입력 — 예산 최우선 원칙
+/** 추천 조건 (§7). ERD 상 updated_at 이 없어 created_at 만 관리한다. */
 @Entity
-@Table(name = "gift_conditions")
 @Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
+@Table(name = "gift_conditions", indexes = @Index(name = "idx_gift_conditions_recipient_id", columnList = "recipient_id"))
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class GiftCondition {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "condition_id")
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "recipient_id", nullable = false)
     private Recipient recipient;
 
-    // 필수 조건: 예산 최우선
-    @Column(nullable = false)
-    private Integer budget;
+    @Column(name = "budget_min", nullable = false)
+    private Integer budgetMin;
 
-    @Column(name = "anniversary_date")
-    private LocalDate anniversaryDate;
+    @Column(name = "budget_max", nullable = false)
+    private Integer budgetMax;
 
-    // 취향/제외 조건 (쉼표 구분 저장, 필요 시 정규화)
-    @Column(name = "preference_tags")
-    private String preferenceTags;
+    /** 예: BIRTHDAY, ANNIVERSARY — 명세서에 값 목록이 없어 문자열로 유지한다. */
+    @Column(name = "occasion_type", nullable = false, length = 100)
+    private String occasionType;
 
-    @Column(name = "exclude_tags")
-    private String excludeTags;
+    @Column(name = "occasion_date")
+    private LocalDate occasionDate;
 
-    @Column(name = "created_at")
-    private LocalDateTime createdAt;
+    @Column(name = "preference_note", columnDefinition = "text")
+    private String preferenceNote;
+
+    @Column(name = "avoid_gift_note", columnDefinition = "text")
+    private String avoidGiftNote;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private OffsetDateTime createdAt;
 
     @PrePersist
     void onCreate() {
-        this.createdAt = LocalDateTime.now();
+        this.createdAt = OffsetDateTime.now();
+    }
+
+    private GiftCondition(Recipient recipient, Integer budgetMin, Integer budgetMax, String occasionType,
+                          LocalDate occasionDate, String preferenceNote, String avoidGiftNote) {
+        this.recipient = recipient;
+        this.budgetMin = budgetMin;
+        this.budgetMax = budgetMax;
+        this.occasionType = occasionType;
+        this.occasionDate = occasionDate;
+        this.preferenceNote = preferenceNote;
+        this.avoidGiftNote = avoidGiftNote;
+    }
+
+    public static GiftCondition create(Recipient recipient, Integer budgetMin, Integer budgetMax,
+                                       String occasionType, LocalDate occasionDate,
+                                       String preferenceNote, String avoidGiftNote) {
+        return new GiftCondition(recipient, budgetMin, budgetMax, occasionType, occasionDate,
+                preferenceNote, avoidGiftNote);
+    }
+
+    /** CONDITION-003: 보낸 필드만 수정한다. */
+    public void update(Integer budgetMin, Integer budgetMax, String occasionType,
+                       LocalDate occasionDate, String preferenceNote, String avoidGiftNote) {
+        if (budgetMin != null) this.budgetMin = budgetMin;
+        if (budgetMax != null) this.budgetMax = budgetMax;
+        if (occasionType != null) this.occasionType = occasionType;
+        if (occasionDate != null) this.occasionDate = occasionDate;
+        if (preferenceNote != null) this.preferenceNote = preferenceNote;
+        if (avoidGiftNote != null) this.avoidGiftNote = avoidGiftNote;
     }
 }

@@ -1,41 +1,60 @@
 package com.skala.ikgeoljune.controller;
 
-import com.skala.ikgeoljune.dto.request.RecipientRequest;
-import com.skala.ikgeoljune.dto.response.RecipientResponse;
+import com.skala.ikgeoljune.common.ListResponse;
+import com.skala.ikgeoljune.dto.recipient.RecipientCreateRequest;
+import com.skala.ikgeoljune.dto.recipient.RecipientResponse;
+import com.skala.ikgeoljune.dto.recipient.RecipientUpdateRequest;
+import com.skala.ikgeoljune.security.AuthUser;
+import com.skala.ikgeoljune.security.CurrentUser;
 import com.skala.ikgeoljune.service.RecipientService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
-// SCR-RECIPIENT-001 · UC2
+/** §4 추천 대상 API */
+@Tag(name = "Recipient", description = "추천 대상")
 @RestController
-@RequestMapping("/api/recipients")
+@RequestMapping("/api/v1/recipients")
 @RequiredArgsConstructor
 public class RecipientController {
 
     private final RecipientService recipientService;
 
-    @GetMapping
-    public List<RecipientResponse> list(@RequestParam(required = false) Long userId) {
-        return recipientService.findAll(userId);
-    }
-
+    @Operation(summary = "RECIPIENT-001 추천 대상 등록")
     @PostMapping
-    public RecipientResponse create(@RequestParam(required = false) Long userId,
-                                     @Valid @RequestBody RecipientRequest request) {
-        return recipientService.create(userId, request);
+    @ResponseStatus(HttpStatus.CREATED)
+    public RecipientResponse create(@CurrentUser AuthUser authUser,
+                                    @Valid @RequestBody RecipientCreateRequest request) {
+        return recipientService.create(authUser.userId(), request);
     }
 
-    @PutMapping("/{recipientId}")
-    public RecipientResponse update(@PathVariable Long recipientId,
-                                     @Valid @RequestBody RecipientRequest request) {
-        return recipientService.update(recipientId, request);
+    @Operation(summary = "RECIPIENT-002 추천 대상 목록 조회")
+    @GetMapping
+    public ListResponse<RecipientResponse> findAll(@CurrentUser AuthUser authUser) {
+        return recipientService.findAll(authUser.userId());
     }
 
+    @Operation(summary = "RECIPIENT-003 추천 대상 상세 조회")
+    @GetMapping("/{recipientId}")
+    public RecipientResponse findOne(@CurrentUser AuthUser authUser, @PathVariable Long recipientId) {
+        return recipientService.findOne(recipientId, authUser.userId());
+    }
+
+    @Operation(summary = "RECIPIENT-004 추천 대상 수정")
+    @PatchMapping("/{recipientId}")
+    public RecipientResponse update(@CurrentUser AuthUser authUser,
+                                    @PathVariable Long recipientId,
+                                    @Valid @RequestBody RecipientUpdateRequest request) {
+        return recipientService.update(recipientId, authUser.userId(), request);
+    }
+
+    @Operation(summary = "RECIPIENT-005 추천 대상 삭제")
     @DeleteMapping("/{recipientId}")
-    public void delete(@PathVariable Long recipientId) {
-        recipientService.delete(recipientId);
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@CurrentUser AuthUser authUser, @PathVariable Long recipientId) {
+        recipientService.delete(recipientId, authUser.userId());
     }
 }
