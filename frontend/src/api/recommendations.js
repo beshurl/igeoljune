@@ -1,38 +1,47 @@
 import http from "./http";
 
-// ===== 대표 흐름: UC7(조건 입력) -> UC8(AI 추천 요청) -> UC9(결과 확인) =====
-
-// SCR-GIFT-001 · UC7 선물 조건 입력 저장
+// CONDITION-001 추천 조건 생성 — 응답: { conditionId, recipientId, ... }
+// payload: { budgetMin, budgetMax, occasionType, occasionDate, preferenceNote, avoidGiftNote }
 export function createGiftCondition(recipientId, payload) {
   return http.post(`/recipients/${recipientId}/gift-conditions`, payload);
 }
 
-// SCR-GIFT-001 · UC8 AI 선물 추천 요청 (AI 확장 지점)
-export function requestRecommendation(giftConditionId) {
-  return http.post(`/gift-conditions/${giftConditionId}/recommendations`);
+// CONDITION-002 추천 조건 조회
+export function fetchGiftCondition(conditionId) {
+  return http.get(`/gift-conditions/${conditionId}`);
 }
 
-// SCR-AI-001 · UC9 추천 결과 확인
+// RECOMMEND-001 AI 추천 요청 — 응답: 202 { recommendationId, status: "PROCESSING", ... }
+export function requestRecommendation(conditionId) {
+  return http.post(`/gift-conditions/${conditionId}/recommendations`);
+}
+
+// RECOMMEND-002 추천 결과 조회 — status: PROCESSING | SUCCESS | FAILED
 export function fetchRecommendation(recommendationId) {
   return http.get(`/recommendations/${recommendationId}`);
 }
 
-// SCR-AI-002 · UC10·UC11 좋아요/싫어요 피드백 후 재추천
-export function submitRecommendationFeedback(recommendationId, payload) {
-  return http.post(`/recommendations/${recommendationId}/feedback`, payload);
+// RECOMMEND-003 조건별 추천 목록 (생성일 역순)
+export function fetchRecommendationsByCondition(conditionId) {
+  return http.get(`/gift-conditions/${conditionId}/recommendations`);
 }
 
-// SCR-AI-002 · UC12 재추천 요청
+// RECOMMEND-004 피드백 반영 재추천 — 응답: 202 { recommendationId(new), previousRecommendationId, status: "PROCESSING" }
 export function requestReRecommendation(recommendationId) {
   return http.post(`/recommendations/${recommendationId}/re-recommend`);
 }
 
-// SCR-HISTORY-001 · UC13 선물 확정 및 이력 저장
-export function confirmGift(recommendationId, payload) {
-  return http.post(`/recommendations/${recommendationId}/confirm`, payload);
+// FEEDBACK-001 피드백 등록·변경 (upsert) — { feedbackType: "LIKE"|"DISLIKE", dislikeReason: <code>|null }
+export function putCandidateFeedback(candidateId, payload) {
+  return http.put(`/recommendation-candidates/${candidateId}/feedback`, payload);
 }
 
-// SCR-RANKING-001 실시간 선물 랭킹 조회 (익명 집계)
-export function fetchGiftRanking() {
-  return http.get("/rankings/gifts");
+// FEEDBACK-002 피드백 조회 (없으면 404)
+export function fetchCandidateFeedback(candidateId) {
+  return http.get(`/recommendation-candidates/${candidateId}/feedback`);
+}
+
+// FEEDBACK-003 피드백 취소 (204)
+export function deleteCandidateFeedback(candidateId) {
+  return http.delete(`/recommendation-candidates/${candidateId}/feedback`);
 }
