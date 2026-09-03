@@ -116,6 +116,11 @@ h3 {
 .screen--narrow {
   max-width: 720px;
 }
+@media (max-width: 640px) {
+  .screen {
+    padding: 20px 16px 64px;
+  }
+}
 .screen--center {
   min-height: calc(100% - 65px);
   display: flex;
