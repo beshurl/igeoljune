@@ -9,7 +9,8 @@ import com.skala.ikgeoljune.service.RecommendationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 /** §8 AI 추천·재추천 API */
@@ -23,9 +24,9 @@ public class RecommendationController {
 
     @Operation(summary = "RECOMMEND-001 AI 추천 요청 (202 Accepted, status=PROCESSING)")
     @PostMapping("/gift-conditions/{conditionId}/recommendations")
-    @ResponseStatus(HttpStatus.ACCEPTED)
-    public RecommendationResponse request(@CurrentUser AuthUser authUser, @PathVariable Long conditionId) {
-        return recommendationService.request(conditionId, authUser.userId());
+    public ResponseEntity<RecommendationResponse> request(@CurrentUser AuthUser authUser,
+                                                          @PathVariable Long conditionId) {
+        return accepted(recommendationService.request(conditionId, authUser.userId()));
     }
 
     @Operation(summary = "RECOMMEND-002 추천 결과 조회")
@@ -44,9 +45,15 @@ public class RecommendationController {
 
     @Operation(summary = "RECOMMEND-004 피드백 반영 재추천 (202 Accepted)")
     @PostMapping("/recommendations/{recommendationId}/re-recommend")
-    @ResponseStatus(HttpStatus.ACCEPTED)
-    public RecommendationResponse reRecommend(@CurrentUser AuthUser authUser,
-                                              @PathVariable Long recommendationId) {
-        return recommendationService.reRecommend(recommendationId, authUser.userId());
+    public ResponseEntity<RecommendationResponse> reRecommend(@CurrentUser AuthUser authUser,
+                                                              @PathVariable Long recommendationId) {
+        return accepted(recommendationService.reRecommend(recommendationId, authUser.userId()));
+    }
+
+    /** API.yml: 202 응답에 상태 조회 URI 를 Location 헤더로 함께 내려준다. */
+    private ResponseEntity<RecommendationResponse> accepted(RecommendationResponse response) {
+        return ResponseEntity.accepted()
+                .header(HttpHeaders.LOCATION, "/api/v1/recommendations/" + response.recommendationId())
+                .body(response);
     }
 }

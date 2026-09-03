@@ -1,21 +1,16 @@
 package com.skala.ikgeoljune.dto.auth;
 
 import com.skala.ikgeoljune.domain.User;
+import com.skala.ikgeoljune.dto.user.UserResponse;
 
-/** AUTH-002 로그인 응답 */
+/** API.yml LoginResponse — user 는 User 스키마 전체를 담는다. */
 public record LoginResponse(
         String accessToken,
         String tokenType,
         long expiresIn,
-        LoginUser user
+        UserResponse user
 ) {
-    public record LoginUser(Long userId, String email, String name) {
-        public static LoginUser from(User user) {
-            return new LoginUser(user.getId(), user.getEmail(), user.getName());
-        }
-    }
-
     public static LoginResponse of(String accessToken, long expiresIn, User user) {
-        return new LoginResponse(accessToken, "Bearer", expiresIn, LoginUser.from(user));
+        return new LoginResponse(accessToken, "Bearer", expiresIn, UserResponse.from(user));
     }
 }

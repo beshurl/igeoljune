@@ -10,12 +10,16 @@ import com.skala.ikgeoljune.service.RecipientService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 /** §4 추천 대상 API */
 @Tag(name = "Recipient", description = "추천 대상")
+@Validated
 @RestController
 @RequestMapping("/api/v1/recipients")
 @RequiredArgsConstructor
@@ -33,8 +37,13 @@ public class RecipientController {
 
     @Operation(summary = "RECIPIENT-002 추천 대상 목록 조회")
     @GetMapping
-    public ListResponse<RecipientResponse> findAll(@CurrentUser AuthUser authUser) {
-        return recipientService.findAll(authUser.userId());
+    public ListResponse<RecipientResponse> findAll(
+            @CurrentUser AuthUser authUser,
+            @RequestParam(defaultValue = "0") @Min(value = 0, message = "page 는 0 이상이어야 합니다.") int page,
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "size 는 1 이상이어야 합니다.")
+            @Max(value = 100, message = "size 는 100 이하여야 합니다.") int size) {
+        return recipientService.findAll(authUser.userId(), page, size);
     }
 
     @Operation(summary = "RECIPIENT-003 추천 대상 상세 조회")

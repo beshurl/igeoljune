@@ -11,6 +11,8 @@ import com.skala.ikgeoljune.dto.recipient.RecipientUpdateRequest;
 import com.skala.ikgeoljune.repository.RecipientRepository;
 import com.skala.ikgeoljune.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,7 +33,7 @@ public class RecipientService {
     @Transactional
     public RecipientResponse create(Long userId, RecipientCreateRequest request) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ApiException(ErrorCode.USER_NOT_FOUND));
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "사용자를 찾을 수 없습니다."));
 
         Recipient recipient = Recipient.create(
                 user,
@@ -44,12 +46,14 @@ public class RecipientService {
         return RecipientResponse.from(recipientRepository.save(recipient));
     }
 
-    /** RECIPIENT-002 */
-    public ListResponse<RecipientResponse> findAll(Long userId) {
-        List<RecipientResponse> items = recipientRepository.findByUserIdOrderByIdDesc(userId).stream()
+    /** RECIPIENT-002 — API.yml page/size 쿼리 파라미터 지원. totalCount 는 전체 건수다. */
+    public ListResponse<RecipientResponse> findAll(Long userId, int page, int size) {
+        Page<Recipient> result = recipientRepository.findByUserIdOrderByIdDesc(
+                userId, PageRequest.of(page, size));
+        List<RecipientResponse> items = result.getContent().stream()
                 .map(RecipientResponse::from)
                 .toList();
-        return ListResponse.of(items);
+        return ListResponse.of(items, result.getTotalElements());
     }
 
     /** RECIPIENT-003 */

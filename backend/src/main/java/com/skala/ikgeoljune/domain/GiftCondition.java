@@ -6,14 +6,13 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
-import java.time.OffsetDateTime;
 
-/** 추천 조건 (§7). ERD 상 updated_at 이 없어 created_at 만 관리한다. */
+/** 추천 조건. DB.dbml gift_conditions */
 @Entity
 @Getter
 @Table(name = "gift_conditions", indexes = @Index(name = "idx_gift_conditions_recipient_id", columnList = "recipient_id"))
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class GiftCondition {
+public class GiftCondition extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -43,14 +42,6 @@ public class GiftCondition {
     @Column(name = "avoid_gift_note", columnDefinition = "text")
     private String avoidGiftNote;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private OffsetDateTime createdAt;
-
-    @PrePersist
-    void onCreate() {
-        this.createdAt = OffsetDateTime.now();
-    }
-
     private GiftCondition(Recipient recipient, Integer budgetMin, Integer budgetMax, String occasionType,
                           LocalDate occasionDate, String preferenceNote, String avoidGiftNote) {
         this.recipient = recipient;
@@ -78,5 +69,6 @@ public class GiftCondition {
         if (occasionDate != null) this.occasionDate = occasionDate;
         if (preferenceNote != null) this.preferenceNote = preferenceNote;
         if (avoidGiftNote != null) this.avoidGiftNote = avoidGiftNote;
+        touch();
     }
 }

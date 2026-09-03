@@ -37,7 +37,9 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final SecurityErrorResponder securityErrorResponder;
 
-    @Value("${app.cors.allowed-origins}")
+    // allowCredentials(true) 와 함께라 "*" 를 쓸 수 없으므로 오리진을 명시한다.
+    // 설정 키가 없어도 기동이 실패하지 않도록 개발용 기본값을 둔다.
+    @Value("${app.cors.allowed-origins:http://localhost:5173,http://localhost:3000}")
     private List<String> allowedOrigins;
 
     /** AUTH-001: 비밀번호는 BCrypt 해시로만 저장한다. */

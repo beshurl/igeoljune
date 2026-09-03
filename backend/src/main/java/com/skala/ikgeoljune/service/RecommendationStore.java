@@ -34,7 +34,7 @@ public class RecommendationStore {
     @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
     public AiRecommendationContext loadContext(Long recommendationId) {
         Recommendation recommendation = recommendationRepository.findById(recommendationId)
-                .orElseThrow(() -> new ApiException(ErrorCode.RECOMMENDATION_NOT_FOUND));
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "추천 결과를 찾을 수 없습니다."));
 
         GiftCondition condition = recommendation.getCondition();
         Recipient recipient = condition.getRecipient();
@@ -79,7 +79,7 @@ public class RecommendationStore {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void saveSuccess(Long recommendationId, List<AiGiftCandidate> results) {
         Recommendation recommendation = recommendationRepository.findById(recommendationId)
-                .orElseThrow(() -> new ApiException(ErrorCode.RECOMMENDATION_NOT_FOUND));
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "추천 결과를 찾을 수 없습니다."));
 
         int rank = 1;
         for (AiGiftCandidate result : results) {
@@ -99,7 +99,8 @@ public class RecommendationStore {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markFailed(Long recommendationId) {
-        recommendationRepository.findById(recommendationId).ifPresent(Recommendation::markFailed);
+    public void markFailed(Long recommendationId, String failureCode, String failureMessage) {
+        recommendationRepository.findById(recommendationId)
+                .ifPresent(r -> r.markFailed(failureCode, failureMessage));
     }
 }

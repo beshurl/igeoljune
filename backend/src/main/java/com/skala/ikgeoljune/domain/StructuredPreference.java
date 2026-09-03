@@ -14,10 +14,10 @@ import lombok.NoArgsConstructor;
 @Table(
         name = "structured_preference",
         uniqueConstraints = @UniqueConstraint(
-                name = "uk_preference_recipient_type_value",
+                name = "uq_recipient_preference",
                 columnNames = {"recipient_id", "preference_type", "preference_value"}
         ),
-        indexes = @Index(name = "idx_preference_recipient_id", columnList = "recipient_id")
+        indexes = @Index(name = "idx_structured_preference_recipient_id", columnList = "recipient_id")
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class StructuredPreference extends BaseTimeEntity {

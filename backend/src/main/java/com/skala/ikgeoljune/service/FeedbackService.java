@@ -44,7 +44,7 @@ public class FeedbackService {
         ownershipValidator.getOwnedCandidate(candidateId, userId);
         return feedbackRepository.findByCandidateId(candidateId)
                 .map(FeedbackResponse::from)
-                .orElseThrow(() -> new ApiException(ErrorCode.FEEDBACK_NOT_FOUND));
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "등록된 피드백이 없습니다."));
     }
 
     /** FEEDBACK-003 피드백 취소 */
@@ -52,7 +52,7 @@ public class FeedbackService {
     public void delete(Long candidateId, Long userId) {
         ownershipValidator.getOwnedCandidate(candidateId, userId);
         Feedback feedback = feedbackRepository.findByCandidateId(candidateId)
-                .orElseThrow(() -> new ApiException(ErrorCode.FEEDBACK_NOT_FOUND));
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "등록된 피드백이 없습니다."));
         feedbackRepository.delete(feedback);
     }
 }

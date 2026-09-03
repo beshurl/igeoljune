@@ -5,6 +5,7 @@ import com.skala.ikgeoljune.domain.GiftCondition;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
+/** API.yml GiftCondition */
 public record GiftConditionResponse(
         Long conditionId,
         Long recipientId,
@@ -14,7 +15,8 @@ public record GiftConditionResponse(
         LocalDate occasionDate,
         String preferenceNote,
         String avoidGiftNote,
-        OffsetDateTime createdAt
+        OffsetDateTime createdAt,
+        OffsetDateTime updatedAt
 ) {
     public static GiftConditionResponse from(GiftCondition condition) {
         return new GiftConditionResponse(
@@ -26,7 +28,8 @@ public record GiftConditionResponse(
                 condition.getOccasionDate(),
                 condition.getPreferenceNote(),
                 condition.getAvoidGiftNote(),
-                condition.getCreatedAt()
+                condition.getCreatedAt(),
+                condition.getUpdatedAt()
         );
     }
 }

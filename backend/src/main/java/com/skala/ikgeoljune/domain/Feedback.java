@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 @Getter
 @Table(
         name = "feedback",
-        uniqueConstraints = @UniqueConstraint(name = "uk_feedback_candidate_id", columnNames = "candidate_id")
+        uniqueConstraints = @UniqueConstraint(name = "uq_feedback_candidate", columnNames = "candidate_id")
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Feedback extends BaseTimeEntity {

@@ -29,49 +29,49 @@ public class OwnershipValidator {
 
     public Recipient getOwnedRecipient(Long recipientId, Long userId) {
         Recipient recipient = recipientRepository.findById(recipientId)
-                .orElseThrow(() -> new ApiException(ErrorCode.RECIPIENT_NOT_FOUND));
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "추천 대상을 찾을 수 없습니다."));
         checkOwner(recipient, userId);
         return recipient;
     }
 
     public StructuredPreference getOwnedPreference(Long preferenceId, Long userId) {
         StructuredPreference preference = preferenceRepository.findById(preferenceId)
-                .orElseThrow(() -> new ApiException(ErrorCode.PREFERENCE_NOT_FOUND));
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "취향 정보를 찾을 수 없습니다."));
         checkOwner(preference.getRecipient(), userId);
         return preference;
     }
 
     public PreviousGift getOwnedPreviousGift(Long previousGiftId, Long userId) {
         PreviousGift gift = previousGiftRepository.findById(previousGiftId)
-                .orElseThrow(() -> new ApiException(ErrorCode.PREVIOUS_GIFT_NOT_FOUND));
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "과거 선물을 찾을 수 없습니다."));
         checkOwner(gift.getRecipient(), userId);
         return gift;
     }
 
     public GiftCondition getOwnedCondition(Long conditionId, Long userId) {
         GiftCondition condition = giftConditionRepository.findById(conditionId)
-                .orElseThrow(() -> new ApiException(ErrorCode.GIFT_CONDITION_NOT_FOUND));
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "추천 조건을 찾을 수 없습니다."));
         checkOwner(condition.getRecipient(), userId);
         return condition;
     }
 
     public Recommendation getOwnedRecommendation(Long recommendationId, Long userId) {
         Recommendation recommendation = recommendationRepository.findById(recommendationId)
-                .orElseThrow(() -> new ApiException(ErrorCode.RECOMMENDATION_NOT_FOUND));
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "추천 결과를 찾을 수 없습니다."));
         checkOwner(recommendation.getCondition().getRecipient(), userId);
         return recommendation;
     }
 
     public RecommendationCandidate getOwnedCandidate(Long candidateId, Long userId) {
         RecommendationCandidate candidate = candidateRepository.findById(candidateId)
-                .orElseThrow(() -> new ApiException(ErrorCode.CANDIDATE_NOT_FOUND));
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, "추천 후보를 찾을 수 없습니다."));
         checkOwner(candidate.getRecommendation().getCondition().getRecipient(), userId);
         return candidate;
     }
 
     private void checkOwner(Recipient recipient, Long userId) {
         if (!recipient.isOwnedBy(userId)) {
-            throw new ApiException(ErrorCode.ACCESS_DENIED);
+            throw new ApiException(ErrorCode.RESOURCE_FORBIDDEN);
         }
     }
 }

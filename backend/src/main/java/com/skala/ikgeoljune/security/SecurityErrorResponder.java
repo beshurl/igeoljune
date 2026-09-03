@@ -32,7 +32,7 @@ public class SecurityErrorResponder implements AuthenticationEntryPoint, AccessD
     @Override
     public void handle(HttpServletRequest request, HttpServletResponse response,
                        AccessDeniedException accessDeniedException) throws IOException {
-        write(response, ErrorCode.ACCESS_DENIED);
+        write(response, ErrorCode.RESOURCE_FORBIDDEN);
     }
 
     private void write(HttpServletResponse response, ErrorCode errorCode) throws IOException {

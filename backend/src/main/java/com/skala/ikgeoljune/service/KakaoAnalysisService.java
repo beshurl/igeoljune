@@ -3,9 +3,9 @@ package com.skala.ikgeoljune.service;
 import com.skala.ikgeoljune.ai.*;
 import com.skala.ikgeoljune.common.ApiException;
 import com.skala.ikgeoljune.common.ErrorCode;
-import com.skala.ikgeoljune.common.ListResponse;
 import com.skala.ikgeoljune.domain.Recipient;
 import com.skala.ikgeoljune.dto.preference.ExtractedPreferenceResponse;
+import com.skala.ikgeoljune.dto.preference.KakaoAnalysisResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,7 +41,7 @@ public class KakaoAnalysisService {
     @Value("${app.kakao-analysis.allowed-extensions}")
     private String allowedExtensions;
 
-    public ListResponse<ExtractedPreferenceResponse> analyze(Long recipientId, Long userId, MultipartFile file) {
+    public KakaoAnalysisResponse analyze(Long recipientId, Long userId, MultipartFile file) {
         Recipient recipient = ownershipValidator.getOwnedRecipient(recipientId, userId);
         validate(file);
 
@@ -53,10 +53,10 @@ public class KakaoAnalysisService {
             List<ExtractedPreferenceResponse> items = extracted.stream()
                     .map(e -> new ExtractedPreferenceResponse(e.preferenceType(), e.preferenceValue()))
                     .toList();
-            return ListResponse.of(items);
+            return KakaoAnalysisResponse.of(items);
         } catch (AiException e) {
             log.warn("카카오톡 분석 실패 - recipientId={}", recipientId, e);
-            throw new ApiException(ErrorCode.KAKAO_ANALYSIS_FAILED, e.getMessage());
+            throw new ApiException(ErrorCode.AI_RESULT_INVALID, e.getMessage());
         } finally {
             // 원문은 여기서 참조가 끊기고 GC 대상이 된다. 파일은 디스크에 남기지 않는다.
             chatText = null;
@@ -65,10 +65,10 @@ public class KakaoAnalysisService {
 
     private void validate(MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new ApiException(ErrorCode.INVALID_INPUT, "분석할 파일이 필요합니다.");
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "분석할 파일이 필요합니다.");
         }
         if (file.getSize() > maxFileSizeBytes) {
-            throw new ApiException(ErrorCode.FILE_TOO_LARGE);
+            throw new ApiException(ErrorCode.PAYLOAD_TOO_LARGE);
         }
         String extension = extensionOf(file.getOriginalFilename());
         List<String> allowed = Arrays.stream(allowedExtensions.split(","))
@@ -76,7 +76,7 @@ public class KakaoAnalysisService {
                 .map(s -> s.toLowerCase(Locale.ROOT))
                 .toList();
         if (!allowed.contains(extension)) {
-            throw new ApiException(ErrorCode.UNSUPPORTED_FILE_TYPE,
+            throw new ApiException(ErrorCode.UNSUPPORTED_MEDIA_TYPE,
                     "지원하지 않는 파일 형식입니다. (" + String.join(", ", allowed) + ")");
         }
     }
@@ -92,7 +92,7 @@ public class KakaoAnalysisService {
         try {
             return new String(file.getBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new ApiException(ErrorCode.KAKAO_ANALYSIS_FAILED, "파일을 읽을 수 없습니다.");
+            throw new ApiException(ErrorCode.AI_RESULT_INVALID, "파일을 읽을 수 없습니다.");
         }
     }
 

@@ -3,7 +3,7 @@ package com.skala.ikgeoljune.controller;
 import com.skala.ikgeoljune.dto.auth.LoginRequest;
 import com.skala.ikgeoljune.dto.auth.LoginResponse;
 import com.skala.ikgeoljune.dto.auth.SignupRequest;
-import com.skala.ikgeoljune.dto.auth.SignupResponse;
+import com.skala.ikgeoljune.dto.user.UserResponse;
 import com.skala.ikgeoljune.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,7 +24,7 @@ public class AuthController {
     @Operation(summary = "AUTH-001 회원가입")
     @PostMapping("/signup")
     @ResponseStatus(HttpStatus.CREATED)
-    public SignupResponse signup(@Valid @RequestBody SignupRequest request) {
+    public UserResponse signup(@Valid @RequestBody SignupRequest request) {
         return authService.signup(request);
     }
 

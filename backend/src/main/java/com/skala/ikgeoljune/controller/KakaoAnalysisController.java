@@ -1,7 +1,6 @@
 package com.skala.ikgeoljune.controller;
 
-import com.skala.ikgeoljune.common.ListResponse;
-import com.skala.ikgeoljune.dto.preference.ExtractedPreferenceResponse;
+import com.skala.ikgeoljune.dto.preference.KakaoAnalysisResponse;
 import com.skala.ikgeoljune.security.AuthUser;
 import com.skala.ikgeoljune.security.CurrentUser;
 import com.skala.ikgeoljune.service.KakaoAnalysisService;
@@ -26,9 +25,9 @@ public class KakaoAnalysisController {
 
     @Operation(summary = "KAKAO-001 카카오톡 파일 임시 분석")
     @PostMapping(value = "/{recipientId}/kakao-analysis", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ListResponse<ExtractedPreferenceResponse> analyze(@CurrentUser AuthUser authUser,
+    public KakaoAnalysisResponse analyze(@CurrentUser AuthUser authUser,
                                                              @PathVariable Long recipientId,
-                                                             @RequestPart("file") MultipartFile file) {
+                                          @RequestPart("file") MultipartFile file) {
         return kakaoAnalysisService.analyze(recipientId, authUser.userId(), file);
     }
 }

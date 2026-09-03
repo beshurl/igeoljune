@@ -44,12 +44,13 @@ public class PreferenceService {
         Recipient recipient = ownershipValidator.getOwnedRecipient(recipientId, userId);
 
         List<PreferenceResponse> saved = new ArrayList<>();
-        for (PreferenceBulkCreateRequest.Item item : request.items()) {
+        for (PreferenceCreateRequest item : request.items()) {
             if (isDuplicated(recipientId, item.preferenceType(), item.preferenceValue())) {
                 continue;
             }
+            // 카카오 분석 검토 화면에서 승인한 항목이므로 sourceType 은 서버가 KAKAO 로 설정한다.
             StructuredPreference preference = StructuredPreference.create(
-                    recipient, item.preferenceType(), item.preferenceValue(), request.sourceType());
+                    recipient, item.preferenceType(), item.preferenceValue(), SourceType.KAKAO);
             saved.add(PreferenceResponse.from(preferenceRepository.save(preference)));
         }
         return ListResponse.of(saved);
@@ -78,7 +79,7 @@ public class PreferenceService {
         boolean changed = newType != preference.getPreferenceType()
                 || !newValue.equals(preference.getPreferenceValue());
         if (changed && isDuplicated(preference.getRecipient().getId(), newType, newValue)) {
-            throw new ApiException(ErrorCode.PREFERENCE_DUPLICATED);
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "이미 등록된 취향입니다.");
         }
 
         preference.update(request.preferenceType(), request.preferenceValue());
@@ -94,7 +95,7 @@ public class PreferenceService {
 
     private StructuredPreference save(Recipient recipient, PreferenceType type, String value, SourceType sourceType) {
         if (isDuplicated(recipient.getId(), type, value)) {
-            throw new ApiException(ErrorCode.PREFERENCE_DUPLICATED);
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "이미 등록된 취향입니다.");
         }
         return preferenceRepository.save(StructuredPreference.create(recipient, type, value, sourceType));
     }

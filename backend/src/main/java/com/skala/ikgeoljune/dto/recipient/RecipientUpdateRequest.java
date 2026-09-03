@@ -1,10 +1,13 @@
 package com.skala.ikgeoljune.dto.recipient;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.skala.ikgeoljune.common.validation.NotBlankIfPresent;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Size;
 
 /**
- * RECIPIENT-004 추천 대상 수정 — 보낸 필드만 수정한다.
+ * API.yml RecipientUpdateRequest — 보낸 필드만 수정한다.
  * 필드를 보냈다면 생성 요청과 동일하게 공백일 수 없다.
  */
 public record RecipientUpdateRequest(
@@ -22,4 +25,11 @@ public record RecipientUpdateRequest(
 
         @Size(max = 100) String job
 ) {
+    /** API.yml minProperties: 1 — 수정할 필드를 최소 한 개는 보내야 한다. */
+    @JsonIgnore
+    @Schema(hidden = true)
+    @AssertTrue(message = "수정할 필드를 최소 한 개 이상 보내야 합니다.")
+    public boolean isAnyFieldPresent() {
+        return name != null || relationship != null || ageGroup != null || gender != null || job != null;
+    }
 }

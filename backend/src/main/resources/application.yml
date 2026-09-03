@@ -24,8 +24,15 @@ spring:
 
   jackson:
     default-property-inclusion: always
+    # §1.1 일시는 ISO 8601(+09:00). Jackson 기본 타임존은 UTC 라 명시하지 않으면
+    # 새로 만든 값은 +09:00, DB 에서 읽은 값은 Z 로 오프셋이 엇갈린다.
+    time-zone: Asia/Seoul
     serialization:
       write-dates-as-timestamps: false
+      write-dates-with-context-time-zone: true
+    deserialization:
+      # API.yml 요청 스키마가 additionalProperties: false 이므로 모르는 필드는 400 으로 거부한다
+      fail-on-unknown-properties: true
 
   servlet:
     multipart:

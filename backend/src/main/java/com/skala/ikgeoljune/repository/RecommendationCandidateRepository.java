@@ -10,7 +10,7 @@ import java.util.List;
 
 public interface RecommendationCandidateRepository extends JpaRepository<RecommendationCandidate, Long> {
 
-    List<RecommendationCandidate> findByRecommendationIdOrderByRecommendationRankAsc(Long recommendationId);
+    List<RecommendationCandidate> findByRecommendationIdOrderByRecommendRankAsc(Long recommendationId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("delete from RecommendationCandidate c where c.recommendation.id in :recommendationIds")

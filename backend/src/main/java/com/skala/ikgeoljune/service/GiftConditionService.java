@@ -68,7 +68,7 @@ public class GiftConditionService {
     public void delete(Long conditionId, Long userId) {
         GiftCondition condition = ownershipValidator.getOwnedCondition(conditionId, userId);
         if (recommendationRepository.existsByConditionId(conditionId)) {
-            throw new ApiException(ErrorCode.GIFT_CONDITION_HAS_RECOMMENDATIONS);
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "추천 결과가 있는 조건은 삭제할 수 없습니다.");
         }
         giftConditionRepository.delete(condition);
     }
@@ -76,7 +76,7 @@ public class GiftConditionService {
     /** budgetMin·budgetMax 는 0 이상이며 budgetMin 은 budgetMax 보다 클 수 없다. */
     private void validateBudget(int budgetMin, int budgetMax) {
         if (budgetMin > budgetMax) {
-            throw new ApiException(ErrorCode.INVALID_BUDGET_RANGE);
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "최소 예산은 최대 예산보다 클 수 없습니다.");
         }
     }
 }

@@ -16,9 +16,10 @@ import java.time.OffsetDateTime;
 @Table(
         name = "recommendation_candidates",
         uniqueConstraints = @UniqueConstraint(
-                name = "uk_candidate_recommendation_rank",
-                columnNames = {"recommendation_id", "recommendation_rank"}
-        )
+                name = "uq_candidate_recommend_rank",
+                columnNames = {"recommendation_id", "recommend_rank"}
+        ),
+        indexes = @Index(name = "idx_candidates_recommendation_id", columnList = "recommendation_id")
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class RecommendationCandidate {
@@ -53,8 +54,8 @@ public class RecommendationCandidate {
     @Column(name = "caution_note", columnDefinition = "text")
     private String cautionNote;
 
-    @Column(name = "recommendation_rank", nullable = false)
-    private Integer recommendationRank;
+    @Column(name = "recommend_rank", nullable = false)
+    private Integer recommendRank;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -67,7 +68,7 @@ public class RecommendationCandidate {
     private RecommendationCandidate(Recommendation recommendation, String giftName, String giftCategory,
                                     Integer estimatedPriceMin, Integer estimatedPriceMax,
                                     String recommendationReason, String consideredInfo,
-                                    String cautionNote, Integer recommendationRank) {
+                                    String cautionNote, Integer recommendRank) {
         this.recommendation = recommendation;
         this.giftName = giftName;
         this.giftCategory = giftCategory;
@@ -76,14 +77,14 @@ public class RecommendationCandidate {
         this.recommendationReason = recommendationReason;
         this.consideredInfo = consideredInfo;
         this.cautionNote = cautionNote;
-        this.recommendationRank = recommendationRank;
+        this.recommendRank = recommendRank;
     }
 
     public static RecommendationCandidate create(Recommendation recommendation, String giftName, String giftCategory,
                                                  Integer estimatedPriceMin, Integer estimatedPriceMax,
                                                  String recommendationReason, String consideredInfo,
-                                                 String cautionNote, Integer recommendationRank) {
+                                                 String cautionNote, Integer recommendRank) {
         return new RecommendationCandidate(recommendation, giftName, giftCategory, estimatedPriceMin,
-                estimatedPriceMax, recommendationReason, consideredInfo, cautionNote, recommendationRank);
+                estimatedPriceMax, recommendationReason, consideredInfo, cautionNote, recommendRank);
     }
 }

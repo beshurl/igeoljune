@@ -14,7 +14,8 @@ public record RecommendationResponse(
         Long conditionId,
         Long previousRecommendationId,
         RecommendationStatus status,
-        OffsetDateTime createdAt
+        OffsetDateTime createdAt,
+        OffsetDateTime updatedAt
 ) {
     public static RecommendationResponse from(Recommendation recommendation) {
         return new RecommendationResponse(
@@ -22,7 +23,8 @@ public record RecommendationResponse(
                 recommendation.getCondition().getId(),
                 recommendation.getPreviousRecommendationId(),
                 recommendation.getStatus(),
-                recommendation.getCreatedAt()
+                recommendation.getCreatedAt(),
+                recommendation.getUpdatedAt()
         );
     }
 }

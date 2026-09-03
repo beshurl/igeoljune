@@ -60,7 +60,7 @@ public class RecommendationService {
         Recommendation recommendation = ownershipValidator.getOwnedRecommendation(recommendationId, userId);
 
         List<RecommendationCandidate> candidates =
-                candidateRepository.findByRecommendationIdOrderByRecommendationRankAsc(recommendationId);
+                candidateRepository.findByRecommendationIdOrderByRecommendRankAsc(recommendationId);
 
         Map<Long, Feedback> feedbackByCandidateId = candidates.isEmpty()
                 ? Map.of()
