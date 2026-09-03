@@ -52,8 +52,6 @@ app:
     # mock: 내부 Mock AI 사용 (실제 LLM 연동 시 provider 추가 후 교체)
     provider: ${AI_PROVIDER:mock}
     candidate-count: 5
-    # Mock AI가 흉내내는 처리 지연(ms). RECOMMEND-001 이 202 PROCESSING 을 먼저 반환하는 흐름 확인용
-    mock-latency-ms: ${AI_MOCK_LATENCY_MS:800}
   kakao-analysis:
     max-file-size-bytes: 5242880
     allowed-extensions: txt,csv

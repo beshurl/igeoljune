@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,11 +23,11 @@ public class RecommendationController {
 
     private final RecommendationService recommendationService;
 
-    @Operation(summary = "RECOMMEND-001 AI 추천 요청 (202 Accepted, status=PROCESSING)")
+    @Operation(summary = "RECOMMEND-001 AI 추천 요청 (201 Created, 후보 포함)")
     @PostMapping("/gift-conditions/{conditionId}/recommendations")
-    public ResponseEntity<RecommendationResponse> request(@CurrentUser AuthUser authUser,
-                                                          @PathVariable Long conditionId) {
-        return accepted(recommendationService.request(conditionId, authUser.userId()));
+    public ResponseEntity<RecommendationDetailResponse> request(@CurrentUser AuthUser authUser,
+                                                                @PathVariable Long conditionId) {
+        return created(recommendationService.request(conditionId, authUser.userId()));
     }
 
     @Operation(summary = "RECOMMEND-002 추천 결과 조회")
@@ -43,16 +44,16 @@ public class RecommendationController {
         return recommendationService.findAllByCondition(conditionId, authUser.userId());
     }
 
-    @Operation(summary = "RECOMMEND-004 피드백 반영 재추천 (202 Accepted)")
+    @Operation(summary = "RECOMMEND-004 피드백 반영 재추천 (201 Created, 후보 포함)")
     @PostMapping("/recommendations/{recommendationId}/re-recommend")
-    public ResponseEntity<RecommendationResponse> reRecommend(@CurrentUser AuthUser authUser,
-                                                              @PathVariable Long recommendationId) {
-        return accepted(recommendationService.reRecommend(recommendationId, authUser.userId()));
+    public ResponseEntity<RecommendationDetailResponse> reRecommend(@CurrentUser AuthUser authUser,
+                                                                    @PathVariable Long recommendationId) {
+        return created(recommendationService.reRecommend(recommendationId, authUser.userId()));
     }
 
-    /** API.yml: 202 응답에 상태 조회 URI 를 Location 헤더로 함께 내려준다. */
-    private ResponseEntity<RecommendationResponse> accepted(RecommendationResponse response) {
-        return ResponseEntity.accepted()
+    /** 생성된 추천의 조회 URI 를 Location 헤더로 함께 내려준다. */
+    private ResponseEntity<RecommendationDetailResponse> created(RecommendationDetailResponse response) {
+        return ResponseEntity.status(HttpStatus.CREATED)
                 .header(HttpHeaders.LOCATION, "/api/v1/recommendations/" + response.recommendationId())
                 .body(response);
     }
