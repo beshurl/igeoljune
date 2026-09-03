@@ -5,6 +5,7 @@ import { useRouter } from "vue-router";
 import { useRecipientStore } from "../store/recipient";
 import { useGiftStore } from "../store/gift";
 import { OCCASION_TYPE, RELATIONSHIP, toOptions, labelOf } from "../constants/enums";
+import { extractApiError } from "../utils/apiError";
 
 const props = defineProps({ recipientId: { type: String, required: true } });
 const router = useRouter();
@@ -39,6 +40,17 @@ const form = reactive({
 });
 const submitting = ref(false);
 const error = ref("");
+const fieldErrors = ref({});
+
+const budgetInvalid = computed(
+  () =>
+    form.budgetMin != null &&
+    form.budgetMax != null &&
+    Number(form.budgetMin) > Number(form.budgetMax)
+);
+const budgetNegative = computed(
+  () => Number(form.budgetMin) < 0 || Number(form.budgetMax) < 0
+);
 
 const recipient = computed(
   () => recipientStore.recipients.find((r) => r.recipientId === rid.value) || null
@@ -61,14 +73,26 @@ function goKakao() {
 
 async function submit() {
   if (submitting.value) return;
-  submitting.value = true;
   error.value = "";
+  fieldErrors.value = {};
+  if (budgetNegative.value) {
+    error.value = "예산은 0 이상이어야 합니다.";
+    return;
+  }
+  if (budgetInvalid.value) {
+    error.value = "최소 예산은 최대 예산보다 클 수 없습니다.";
+    fieldErrors.value = { budgetMax: "최소 예산 이상이어야 합니다." };
+    return;
+  }
+  submitting.value = true;
   try {
     await giftStore.submitCondition(rid.value, { ...form });
     const accepted = await giftStore.requestRecommendation();
     router.push({ name: "SCR-AI-001", params: { recommendationId: accepted.recommendationId } });
   } catch (e) {
-    error.value = e?.response?.data?.message || "추천 요청에 실패했습니다.";
+    const parsed = extractApiError(e, "추천 요청에 실패했습니다.");
+    error.value = parsed.message;
+    fieldErrors.value = parsed.fieldErrors;
     submitting.value = false;
   }
 }
@@ -129,6 +153,9 @@ async function submit() {
               {{ p.label }}
             </button>
           </div>
+          <p v-if="budgetInvalid || fieldErrors.budgetMax" class="form-error">
+            {{ fieldErrors.budgetMax || "최소 예산은 최대 예산보다 클 수 없습니다." }}
+          </p>
         </div>
 
         <div class="field">
@@ -156,11 +183,15 @@ async function submit() {
         <span class="material-symbols-outlined">chevron_right</span>
       </button>
 
-      <p v-if="error" class="form-error" style="margin-top: 14px">{{ error }}</p>
+      <InlineAlert type="error" :message="error" />
 
       <div class="submit">
         <span class="muted">제외 조건에 해당하는 후보는 생성되지 않습니다.</span>
-        <button class="btn btn--primary btn--lg" :disabled="submitting" @click="submit">
+        <button
+          class="btn btn--primary btn--lg"
+          :disabled="submitting || budgetInvalid || budgetNegative"
+          @click="submit"
+        >
           <span class="material-symbols-outlined">auto_awesome</span>
           {{ submitting ? "AI 추천 요청 중..." : "조건으로 AI 선물 추천받기" }}
         </button>

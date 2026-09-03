@@ -5,12 +5,14 @@ import { useRouter } from "vue-router";
 import { useKakaoStore } from "../store/kakao";
 import { useRecipientStore } from "../store/recipient";
 import { PREFERENCE_TYPE, labelOf } from "../constants/enums";
+import { extractApiError } from "../utils/apiError";
 
 const router = useRouter();
 const kakao = useKakaoStore();
 const recipientStore = useRecipientStore();
 
 const saving = ref(false);
+const error = ref("");
 const editingIdx = ref(null);
 const editDraft = ref("");
 const approvedCount = computed(() => kakao.items.filter((i) => i.approved).length);
@@ -42,6 +44,7 @@ function removeItem(i) {
 async function save() {
   if (saving.value) return;
   saving.value = true;
+  error.value = "";
   try {
     await kakao.saveApproved();
     const rid = recipientStore.selectedRecipientId;
@@ -49,6 +52,8 @@ async function save() {
     router.push(
       rid ? { name: "SCR-GIFT-001", params: { recipientId: rid } } : { name: "SCR-RECIPIENT-001" }
     );
+  } catch (e) {
+    error.value = extractApiError(e, "취향 저장에 실패했습니다.").message;
   } finally {
     saving.value = false;
   }
@@ -65,6 +70,8 @@ async function save() {
         <span class="pill pill--accent">{{ approvedCount }}건 승인됨</span>
       </div>
       <p class="page-desc">AI가 대화에서 추출한 단서를 확인·수정한 뒤, 추천에 사용할 항목만 승인합니다. 마음에 들지 않는 단서는 삭제하세요.</p>
+
+      <InlineAlert type="error" :message="error" />
 
       <div class="card">
         <div v-for="(item, i) in kakao.items" :key="i" class="row">

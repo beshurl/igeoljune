@@ -4,6 +4,7 @@ import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useGiftStore } from "../store/gift";
 import { OCCASION_TYPE, DISLIKE_REASON, toOptions, labelOf } from "../constants/enums";
+import { extractApiError } from "../utils/apiError";
 
 const props = defineProps({ recommendationId: { type: String, required: true } });
 const router = useRouter();
@@ -11,6 +12,8 @@ const giftStore = useGiftStore();
 
 const REASONS = toOptions(DISLIKE_REASON);
 const failed = ref(false);
+const failMessage = ref("");
+const actionError = ref("");
 const busyCard = ref(null);
 const dislikeFor = ref(null); // 사유 모달 대상 candidateId
 const dislikeReason = ref("TASTE_MISMATCH");
@@ -49,23 +52,36 @@ const budgetLabel = (c) =>
     budgetClass(c)
   ] || "예상가");
 
-onMounted(async () => {
+async function loadResult() {
+  failed.value = false;
+  failMessage.value = "";
   try {
     await giftStore.loadRecommendation(props.recommendationId);
-    if (giftStore.recommendation?.status === "FAILED") failed.value = true;
-  } catch {
+    if (giftStore.recommendation?.status === "FAILED") {
+      failed.value = true;
+      failMessage.value =
+        giftStore.recommendation?.failure?.message ||
+        "추천 생성에 실패했습니다. 조건을 조정해 다시 시도해 주세요.";
+    }
+  } catch (e) {
     failed.value = true;
+    failMessage.value = extractApiError(
+      e,
+      "추천 결과를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
+    ).message;
   }
-});
+}
+onMounted(loadResult);
 
 async function like(c) {
+  actionError.value = "";
   busyCard.value = c.candidateId;
   try {
-    if (c.feedback?.feedbackType === "LIKE") {
-      // 이미 좋아요면 토글 취소는 별도 API(DELETE) — 여기선 유지
-    } else {
+    if (c.feedback?.feedbackType !== "LIKE") {
       await giftStore.sendFeedback(c.candidateId, { feedbackType: "LIKE" });
     }
+  } catch (e) {
+    actionError.value = extractApiError(e, "피드백 등록에 실패했습니다.").message;
   } finally {
     busyCard.value = null;
   }
@@ -76,10 +92,13 @@ function openDislike(c) {
 }
 async function confirmDislike() {
   const id = dislikeFor.value;
+  actionError.value = "";
   busyCard.value = id;
   try {
     await giftStore.sendFeedback(id, { feedbackType: "DISLIKE", dislikeReason: dislikeReason.value });
     dislikeFor.value = null;
+  } catch (e) {
+    actionError.value = extractApiError(e, "피드백 등록에 실패했습니다.").message;
   } finally {
     busyCard.value = null;
   }
@@ -95,8 +114,13 @@ function goReRecommend() {
     <div class="screen">
       <div v-if="failed" class="loading-block">
         <span class="material-symbols-outlined" style="font-size: 32px; color: var(--danger)">error</span>
-        <span>{{ rec?.failure?.message || "추천 생성에 실패했습니다. 조건을 조정해 다시 시도해 주세요." }}</span>
-        <button class="btn btn--outline btn--sm" @click="router.push({ name: 'SCR-RECIPIENT-001' })">대상 목록으로</button>
+        <span>{{ failMessage }}</span>
+        <div style="display: flex; gap: 8px">
+          <button class="btn btn--outline btn--sm" @click="loadResult">다시 시도</button>
+          <button class="btn btn--ghost btn--sm" @click="router.push({ name: 'SCR-RECIPIENT-001' })">
+            대상 목록으로
+          </button>
+        </div>
       </div>
 
       <div v-else-if="!ready" class="loading-block">
@@ -105,6 +129,7 @@ function goReRecommend() {
       </div>
 
       <template v-else>
+        <InlineAlert type="error" :message="actionError" />
         <div class="head">
           <div>
             <div class="head__label">
