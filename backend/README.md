@@ -61,6 +61,10 @@ Hibernate 는 `ddl-auto: validate` 로 검증만 하며 스키마를 바꾸지 �
 - 엔티티를 변경했다면 반드시 새 마이그레이션(`V2__*.sql`, `V3__*.sql` ...)을 추가한다.
 - `local` 프로필과 테스트는 인메모리 H2 라 Flyway 를 끄고 `create-drop` 을 쓴다.
 
+> **주의**: 그래서 `./mvnw test` 는 마이그레이션 SQL 을 한 번도 실행하지 않는다.
+> `V1`/`V2` 가 깨져 있어도 테스트는 통과한다. 마이그레이션을 추가·수정했다면
+> PostgreSQL 로 직접 기동해 확인할 것.
+
 ### 기존 DB 에서 업그레이드
 
 Google OAuth 시절 스키마(`users.google_sub`, `recipients` 등)가 남아 있는 DB 로 기동하면
@@ -103,12 +107,13 @@ Swagger UI: http://localhost:8080/swagger-ui.html
 ```
 com.skala.ikgeoljune
 ├── common        ErrorCode / ApiException / ErrorResponse / ListResponse / GlobalExceptionHandler
-├── config        SecurityConfig, AsyncConfig, OpenApiConfig, TimeZoneConfig
-├── security      JwtTokenProvider, JwtAuthenticationFilter, AuthUser, @CurrentUser
+│   └── validation  @NotBlankIfPresent (PATCH 로 빈 문자열이 오는 것을 막는다)
+├── config        SecurityConfig, OpenApiConfig, TimeZoneConfig
+├── security      JwtTokenProvider, JwtAuthenticationFilter, AuthUser, @CurrentUser, SecurityErrorResponder
 ├── domain        엔티티 8개 + Enum 5개 (§10)
 ├── repository    Spring Data JPA
 ├── dto           요청·응답 record (camelCase)
-├── service       도메인별 서비스 + OwnershipValidator + 비동기 추천 처리
+├── service       도메인별 서비스 + OwnershipValidator + CascadeDeleteService
 ├── ai            GiftAiClient 인터페이스와 콘텍스트 타입
 │   └── mock      MockGiftAiClient, GiftCatalog
 └── controller    REST 컨트롤러 (모두 /api/v1)
@@ -119,9 +124,12 @@ com.skala.ikgeoljune
 구현 기준은 **`DB.dbml`(스키마)** 과 **`API.yml`(REST 계약)** 두 파일이며,
 `docs/contract/` 에서 함께 버전 관리한다. 어긋나는 항목과 갱신 필요 사항은 `docs/contract/README.md` 참고.
 
+실제 LLM 으로 넘어갈 때의 단계별 계획은 [`docs/roadmap/ai-integration.md`](docs/roadmap/ai-integration.md) 에 있다.
+
 - 스키마: `V1__init.sql` 이 `DB.dbml` 의 테이블·인덱스·CHECK 제약·FK 삭제 규칙을 그대로 옮긴 것
-- 오류 코드: `API.yml components/responses` 의 `VALIDATION_ERROR`, `UNAUTHORIZED`, `RESOURCE_FORBIDDEN`,
-  `RESOURCE_NOT_FOUND`, `RESOURCE_CONFLICT`, `AI_RESULT_INVALID` 만 사용한다.
+- 오류 코드: `API.yml` 이 정의한 10개(`VALIDATION_ERROR` 400, `UNAUTHORIZED` 401, `RESOURCE_FORBIDDEN` 403,
+  `RESOURCE_NOT_FOUND` 404, `METHOD_NOT_ALLOWED` 405, `RESOURCE_CONFLICT` 409, `PAYLOAD_TOO_LARGE` 413,
+  `UNSUPPORTED_MEDIA_TYPE` 415, `AI_RESULT_INVALID` 422, `INTERNAL_ERROR` 500)만 쓴다.
   구체적인 상황은 `message` 로 전달하고 `code` 를 세분화하지 않는다.
 - 요청 검증: `minProperties: 1`(빈 PATCH 본문 거부), `additionalProperties: false`(모르는 필드 거부)를 실제로 강제한다
 - 목록: `{ items, totalCount }`. `GET /recipients` 는 `page`(≥0), `size`(1~100) 를 받는다
@@ -141,8 +149,11 @@ GET  /api/v1/recommendations/{recommendationId}              → 200 { candidate
 ```
 
 후보를 만들지 못하면 실행 기록을 남기지 않고 **422 `AI_RESULT_INVALID`** 를 반환한다.
-실제 LLM 연동으로 응답 시간이 길어지면 그때 비동기 + 폴링으로 전환하고,
-`recommendations.status` / `failure_code` / `failure_message` 컬럼을 그 용도로 사용한다.
+
+`recommendations.status` / `failure_code` / `failure_message` 컬럼과 `Recommendation.markFailed()` 는
+비동기 전환용으로 미리 만들어 두었을 뿐, **동기 처리인 지금은 쓰이지 않는다**(status 는 항상 `SUCCESS`).
+전환 시 스키마 변경은 필요 없지만 "실패하면 기록을 남기지 않는다" 정책은 뒤집어야 한다.
+자세한 내용은 로드맵 Phase 3 참고.
 
 ### 최종 선물 선택
 
@@ -176,7 +187,23 @@ public interface GiftAiClient {
 - 재추천 시 이전 추천에서 `DISLIKE` 한 상품과 해당 사유의 카테고리 제외
 
 실제 LLM 으로 바꿀 때는 `GiftAiClient` 를 구현한 빈을 추가하고 `AI_PROVIDER` 값만 바꾸면 되며,
-서비스·컨트롤러 코드는 건드릴 필요가 없다.
+서비스·컨트롤러 코드는 건드릴 필요가 없다. `MockGiftAiClient` 는 `matchIfMissing = true` 라
+설정을 지우면 다시 mock 으로 돌아온다.
+
+다만 **빈 교체만으로 끝나지는 않는다.** LLM 은 위 제외 규칙을 조용히 어기므로
+`Exclusions` 수준의 사후 검증과 프롬프트 인젝션 방어가 함께 필요하다(로드맵 Phase 1~2).
+
+## 현재 구현 범위
+
+`API.yml` 의 엔드포인트는 전부 구현돼 동작하지만, 아래는 **아직 없다**.
+
+| 항목 | 상태 |
+|---|---|
+| 실제 LLM 연동 | `GiftAiClient` 인터페이스만 있고 구현체는 `MockGiftAiClient` 뿐이다 (카탈로그 30건 + 키워드 규칙) |
+| 토큰 갱신·로그아웃 | access token 단일 발급. refresh·무효화·비밀번호 변경 API 없음 |
+| 요청 제한 | 로그인·추천 모두 rate limit 없음 |
+| 배포 설정 | Dockerfile·CI 워크플로 없음. 로컬 실행 기준이다 |
+| 목록 페이지네이션 | `GET /recipients` 에만 있다. 나머지 목록은 전량 반환 |
 
 ## 팀 확인이 필요한 지점
 
@@ -187,7 +214,10 @@ public interface GiftAiClient {
    프론트에서 분기가 필요하면 계약에 코드 추가가 필요하다.
 3. **`Idempotency-Key` 헤더 미구현** — `API.yml` 에 "서버 지원 여부를 구현 전에 확정합니다" 로 적혀 있어 보류했다.
    받아만 두고 무시하면 클라이언트가 중복 방지를 신뢰하게 되므로 일부러 구현하지 않았다.
+   Mock 에서는 중복 POST 가 추천 레코드만 늘리지만, **실제 LLM 에서는 그대로 비용이라 더 미룰 수 없다**(로드맵 Phase 3).
 4. **추천 조건 목록 조회 API 부재** — `API.yml` 에 `GET /recipients/{recipientId}/gift-conditions` 가 없다.
    프론트에서 필요하면 계약에 추가해야 한다.
 5. **`relationship` / `ageGroup` / `gender` / `occasionType` / `giftCategory`** — 두 문서 모두 값 목록이 없어 문자열로 두었다.
+   Mock 은 카탈로그가 고정이라 문제가 없지만, LLM 은 매번 다른 문자열을 반환할 수 있다.
+   **실제 연동 전에 값 목록을 고정해야 한다**(로드맵 Phase 0).
 6. **카카오톡 파일 제한** — 5MB / `.txt`, `.csv` 로 잡아 두었다(`app.kakao-analysis.*`).
