@@ -4,7 +4,22 @@ import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useGiftStore } from "../store/gift";
 import { OCCASION_TYPE, DISLIKE_REASON, toOptions, labelOf } from "../constants/enums";
+import { giftImageUrl, giftImageFallbackUrl } from "../constants/giftImages";
 import { extractApiError } from "../utils/apiError";
+
+// candidateId -> 0: 로컬 이미지, 1: Unsplash 폴백, 2: 아이콘
+const imgStage = ref({});
+function candImg(c) {
+  return (imgStage.value[c.candidateId] ?? 0) === 0
+    ? giftImageUrl(c.giftName, c.giftCategory)
+    : giftImageFallbackUrl(c.giftName, c.giftCategory);
+}
+function onImgError(c) {
+  imgStage.value = {
+    ...imgStage.value,
+    [c.candidateId]: (imgStage.value[c.candidateId] ?? 0) + 1,
+  };
+}
 
 const props = defineProps({ recommendationId: { type: String, required: true } });
 const router = useRouter();
@@ -202,7 +217,14 @@ function goReRecommend() {
             }"
           >
             <div class="cand__media">
-              <span class="material-symbols-outlined">redeem</span>
+              <img
+                v-if="(imgStage[c.candidateId] ?? 0) < 2"
+                :src="candImg(c)"
+                :alt="c.giftName"
+                loading="lazy"
+                @error="onImgError(c)"
+              />
+              <span v-else class="material-symbols-outlined">redeem</span>
               <span class="cand__rank">후보 {{ String(c.recommendRank ?? 0).padStart(2, "0") }}</span>
               <span class="cand__cat" v-if="c.giftCategory">{{ c.giftCategory }}</span>
             </div>
@@ -398,6 +420,12 @@ function goReRecommend() {
   border: 1px solid var(--border);
   display: grid;
   place-items: center;
+  overflow: hidden;
+}
+.cand__media > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .cand__media > .material-symbols-outlined {
   font-size: 44px;
@@ -484,22 +512,21 @@ function goReRecommend() {
   margin-top: 2px;
 }
 .cand__fbState {
-  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 .cand__acts {
   display: flex;
   gap: 8px;
   margin-top: auto;
-  padding-top: 6px;
 }
 .cand__acts .btn {
   flex: 1;
 }
 .cand__acts .material-symbols-outlined {
   font-size: 15px;
-}
-.cand__select {
-  margin-top: 8px;
 }
 .cand__select .material-symbols-outlined {
   font-size: 15px;

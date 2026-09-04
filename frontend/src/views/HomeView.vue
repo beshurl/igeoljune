@@ -12,6 +12,12 @@ function start() {
 function goLogin() {
   router.push({ name: "SCR-AUTH-001" });
 }
+// 리터럴이면 Vite 가 빌드 시 파일을 찾으려 하므로 변수로 바인딩
+const heroImg = "/gift/handdrip-coffee.jpg";
+function onHeroImgError(e) {
+  e.target.src =
+    "https://images.unsplash.com/photo-1442550528053-c431ecb55509?w=640&h=480&fit=crop&crop=entropy&auto=format&q=70";
+}
 
 const features = [
   { icon: "lock", title: "비소셜 1인용 안심 도구", desc: "친구 추가나 상대방 조회 없이, 내 계정에서만 보이는 비공개 큐레이션 공간입니다." },
@@ -61,7 +67,9 @@ const compare = [
       </div>
       <div class="hero__art">
         <div class="hero__card card">
-          <div class="hero__card-media"><span class="material-symbols-outlined">redeem</span></div>
+          <div class="hero__card-media">
+            <img :src="heroImg" alt="하리오 V60 드립 세트" loading="lazy" @error="onHeroImgError" />
+          </div>
           <div class="hero__card-body">
             <span class="pill pill--accent">20대 후반 절친 · 생일 선물</span>
             <strong>하리오 V60 드립 세트</strong>
@@ -104,13 +112,14 @@ const compare = [
       </div>
     </section>
 
-    <section class="cta">
-      <span class="cta__bot">🎁</span>
-      <div>
-        <strong class="cta__title">이제 고마운 마음을 온전히 전하는 데만 집중하세요</strong>
-        <p class="muted">소중한 사람에게 딱 맞는 선물, 불필요한 개인정보 유출 없이 지금 시작해 보세요.</p>
+    <section class="block cta-block">
+      <div class="cta">
+        <div>
+          <strong class="cta__title">이제 고마운 마음을 온전히 전하는 데만 집중하세요</strong>
+          <p class="muted">소중한 사람에게 딱 맞는 선물, 불필요한 개인정보 유출 없이 지금 시작해 보세요.</p>
+        </div>
+        <button class="btn btn--primary btn--lg" @click="start">무료로 시작하기</button>
       </div>
-      <button class="btn btn--primary btn--lg" @click="start">무료로 시작하기</button>
     </section>
 
     <footer class="hfoot">
@@ -194,14 +203,13 @@ const compare = [
   aspect-ratio: 4 / 3;
   border-radius: var(--radius);
   background: linear-gradient(135deg, var(--primary-soft), #fff3ea);
-  display: grid;
-  place-items: center;
+  overflow: hidden;
   margin-bottom: 12px;
 }
-.hero__card-media .material-symbols-outlined {
-  font-size: 48px;
-  color: var(--primary);
-  opacity: 0.7;
+.hero__card-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .hero__card-body {
   display: flex;
@@ -284,19 +292,18 @@ const compare = [
   font-family: var(--font-label);
   font-weight: 700;
 }
+.cta-block {
+  padding-top: 56px;
+  padding-bottom: 40px;
+}
 .cta {
-  max-width: 1200px;
-  margin: 56px auto 40px;
-  padding: 32px;
+  padding: 28px 32px;
   display: flex;
   align-items: center;
   gap: 20px;
   background: var(--primary-soft);
   border: 1px solid var(--primary-border);
   border-radius: var(--radius-xl);
-}
-.cta__bot {
-  font-size: 44px;
 }
 .cta__title {
   font-size: 18px;

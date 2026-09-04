@@ -51,7 +51,6 @@ async function reRecommend() {
   <div>
     <AppNav />
     <div class="screen screen--narrow">
-      <p class="page-eyebrow">SCR-AI-002 · UC10 · REQ-F-010</p>
       <h1 class="page-title">피드백 반영 재추천</h1>
       <p class="page-desc">
         같은 조건으로 새 추천을 실행합니다. 이전 추천에서 <strong>싫어요</strong>로 표시한 후보와 사유가
