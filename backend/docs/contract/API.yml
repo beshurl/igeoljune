@@ -1,11 +1,19 @@
 openapi: 3.0.3
 info:
   title: 이걸주네? API
-  version: 1.0.0
+  version: 2.0.0
   description: |
     AI 맞춤형 선물 추천 서비스의 MVP REST API 명세입니다.
     일반 이메일·비밀번호 회원가입과 로그인을 사용합니다.
     카카오톡 원문은 분석 중에만 임시 처리하고 영구 저장하지 않습니다.
+    핵심 흐름은 대상·조건 입력 → AI 추천 → 결과 조회 → 피드백 → 재추천 → 최종 선물 선택입니다.
+
+    이 문서는 `backend` 구현(컨트롤러·DTO·Flyway 마이그레이션)을 그대로 옮긴 것입니다.
+    구현과 어긋나는 부분을 발견하면 코드가 아니라 이 문서를 먼저 고칩니다.
+
+    응답 직렬화 규칙: Jackson `default-property-inclusion: always` 이므로
+    값이 없는 필드도 키가 항상 포함되며 `null` 로 내려갑니다.
+    요청 본문은 `fail-on-unknown-properties: true` 이므로 정의되지 않은 필드를 보내면 400 입니다.
   contact:
     name: 이걸주네? 프로젝트 팀
     url: https://github.com/beshurl/igeoljune
@@ -15,31 +23,133 @@ info:
 
 servers:
   - url: /
-    description: 배포 호스트와 로컬·Mock 호스트에 공통으로 적용하는 루트 URL
+    description: 배포 호스트에 상대 경로로 적용
+  - url: http://127.0.0.1:8080
+    description: 로컬 Application API
+  - url: http://127.0.0.1:4010
+    description: Prism 정적 응답 Mock API
 
-x-local-server: http://127.0.0.1:8080/api/v1
-x-mock-server: http://127.0.0.1:4010/api/v1
-x-mock-command: npx --yes @stoplight/prism-cli mock API.yml --host 127.0.0.1 --port 4010 --errors
+x-mock-command: npx --yes @stoplight/prism-cli mock docs/contract/API.yml --host 127.0.0.1 --port 4010 --errors
+x-core-flow: 대상 등록 → 추천 조건 입력 → AI 추천 요청 → 추천 결과 조회 → 후보 피드백 → 재추천 → 최종 선물 선택
+x-ai-contract:
+  processing: synchronous
+  note: |
+    MVP 는 Mock AI 를 요청 스레드 안에서 실행하고 후보까지 채운 201 을 즉시 반환합니다.
+    프론트는 PROCESSING 을 폴링하지 않습니다.
+    recommendations.status 컬럼과 RecommendationStatus 는 실제 LLM 연동 시
+    비동기 + 폴링으로 전환할 자리를 남겨 둔 것이며, 현재는 생성 직후부터 SUCCESS 입니다.
+  input-sources: [recipient, structured_preference, previous_gifts, gift_conditions, feedback]
+  output-schema: GiftCandidate
+  output-fields: [giftName, giftCategory, estimatedPriceMin, estimatedPriceMax, recommendationReason, consideredInfo, cautionNote, recommendRank]
+  candidate-count: 5
+  success-response: 201 RecommendationDetail
+  failure-response: 422 ErrorResponse (code=AI_RESULT_INVALID)
+x-error-contract:
+  schema: ErrorResponse
+  codes:
+    VALIDATION_ERROR: 400
+    UNAUTHORIZED: 401
+    RESOURCE_FORBIDDEN: 403
+    RESOURCE_NOT_FOUND: 404
+    METHOD_NOT_ALLOWED: 405
+    RESOURCE_CONFLICT: 409
+    PAYLOAD_TOO_LARGE: 413
+    UNSUPPORTED_MEDIA_TYPE: 415
+    AI_RESULT_INVALID: 422
+    INTERNAL_ERROR: 500
+  source: com.skala.ikgeoljune.common.ErrorCode
+x-field-naming:
+  api-and-ai: camelCase
+  database: snake_case
+  rule: 같은 의미의 필드는 아래 명시적 매핑을 사용하며 AI 출력명과 API 응답명은 완전히 동일하게 유지합니다.
+  mappings:
+    giftName: recommendation_candidates.gift_name
+    giftCategory: recommendation_candidates.gift_category
+    estimatedPriceMin: recommendation_candidates.estimated_price_min
+    estimatedPriceMax: recommendation_candidates.estimated_price_max
+    recommendationReason: recommendation_candidates.recommendation_reason
+    consideredInfo: recommendation_candidates.considered_info
+    cautionNote: recommendation_candidates.caution_note
+    recommendRank: recommendation_candidates.recommend_rank
+    selectedAt: recommendation_candidates.selected_at
+x-traceability:
+  - uc-id: UC1
+    req-id: REQ-F-001
+    screen-ids: [SCR-AUTH-001, SCR-AUTH-002]
+    tables: [users]
+    operation-ids: [signUp, login, getMe, updateMe, deleteMe]
+  - uc-id: UC2
+    req-id: REQ-F-002
+    screen-ids: [SCR-RECIPIENT-001]
+    tables: [recipient]
+    operation-ids: [createRecipient, listRecipients, getRecipient, updateRecipient, deleteRecipient]
+  - uc-id: UC3
+    req-id: REQ-F-003
+    screen-ids: [SCR-GIFT-001]
+    tables: [gift_conditions, structured_preference]
+    operation-ids: [createPreference, listPreferences, createGiftCondition, getGiftCondition, updateGiftCondition, deleteGiftCondition]
+  - uc-id: UC4
+    req-id: REQ-F-004
+    screen-ids: [SCR-KAKAO-001]
+    tables: []
+    operation-ids: [analyzeKakaoConversation]
+  - uc-id: UC5
+    req-id: REQ-F-005
+    screen-ids: [SCR-KAKAO-001]
+    tables: []
+    operation-ids: [analyzeKakaoConversation]
+  - uc-id: UC6
+    req-id: REQ-F-006
+    screen-ids: [SCR-KAKAO-002]
+    tables: [structured_preference]
+    operation-ids: [listPreferences, createPreferencesBulk, updatePreference, deletePreference]
+  - uc-id: UC7
+    req-id: REQ-F-007
+    screen-ids: [SCR-GIFT-001]
+    tables: [recipient, structured_preference, previous_gifts, gift_conditions, recommendations, recommendation_candidates]
+    operation-ids: [createRecommendation]
+  - uc-id: UC8
+    req-id: REQ-F-008
+    screen-ids: [SCR-AI-001]
+    tables: [recommendations, recommendation_candidates]
+    operation-ids: [listRecommendations, getRecommendation]
+  - uc-id: UC9
+    req-id: REQ-F-009
+    screen-ids: [SCR-AI-001]
+    tables: [feedback]
+    operation-ids: [upsertFeedback, getFeedback, deleteFeedback]
+  - uc-id: UC10
+    req-id: REQ-F-010
+    screen-ids: [SCR-AI-002]
+    tables: [gift_conditions, recommendations, recommendation_candidates, feedback]
+    operation-ids: [createRerecommendation]
+  - uc-id: UC11
+    req-id: REQ-F-011
+    screen-ids: [SCR-HISTORY-001]
+    tables: [previous_gifts]
+    operation-ids: [createPreviousGift, listPreviousGifts, updatePreviousGift, deletePreviousGift]
 
 tags:
   - name: Auth
     description: 이메일 회원가입·로그인
-  - name: Users
+  - name: User
     description: 현재 사용자 관리
-  - name: Recipients
+  - name: Recipient
     description: 선물 대상 관리
-  - name: Preferences
+  - name: Preference
     description: 구조화 취향 관리
-  - name: Kakao Analysis
+  - name: KakaoAnalysis
     description: 카카오톡 대화 파일 임시 분석
-  - name: Previous Gifts
+  - name: PreviousGift
     description: 대상별 과거 선물 관리
-  - name: Gift Conditions
+  - name: GiftCondition
     description: 추천 조건 관리
-  - name: Recommendations
+  - name: Recommendation
     description: AI 추천·재추천
   - name: Feedback
     description: 후보별 현재 피드백
+  - name: CandidateSelection
+    description: 최종 선물 선택
 
 security:
   - bearerAuth: []
@@ -48,7 +158,7 @@ paths:
   /api/v1/auth/signup:
     post:
       tags: [Auth]
-      summary: 이메일 회원가입
+      summary: AUTH-001 이메일 회원가입
       operationId: signUp
       security: []
       x-uc-id: UC1
@@ -75,11 +185,13 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/auth/login:
     post:
       tags: [Auth]
-      summary: 이메일·비밀번호 로그인
+      summary: AUTH-002 이메일·비밀번호 로그인
       operationId: login
       security: []
       x-uc-id: UC1
@@ -104,12 +216,22 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
-          $ref: '#/components/responses/Unauthorized'
+          description: 이메일 또는 비밀번호 불일치
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: UNAUTHORIZED
+                message: 이메일 또는 비밀번호가 올바르지 않습니다.
+                fieldErrors: []
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/users/me:
     get:
-      tags: [Users]
-      summary: 내 정보 조회
+      tags: [User]
+      summary: USER-001 내 정보 조회
       operationId: getMe
       x-uc-id: UC1
       x-req-id: REQ-F-001
@@ -123,9 +245,13 @@ paths:
                 $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     patch:
-      tags: [Users]
-      summary: 내 이름 수정
+      tags: [User]
+      summary: USER-002 내 이름 수정
       operationId: updateMe
       x-uc-id: UC1
       x-req-id: REQ-F-001
@@ -146,9 +272,13 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
-      tags: [Users]
-      summary: 회원 탈퇴
+      tags: [User]
+      summary: USER-003 회원 탈퇴
       description: 사용자와 소유한 추천 대상 및 하위 개인 데이터를 함께 삭제합니다.
       operationId: deleteMe
       x-uc-id: UC1
@@ -158,11 +288,15 @@ paths:
           description: 탈퇴 성공
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/recipients:
     post:
-      tags: [Recipients]
-      summary: 추천 대상 등록
+      tags: [Recipient]
+      summary: RECIPIENT-001 추천 대상 등록
       operationId: createRecipient
       x-uc-id: UC2
       x-req-id: REQ-F-002
@@ -184,9 +318,14 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     get:
-      tags: [Recipients]
-      summary: 추천 대상 목록 조회
+      tags: [Recipient]
+      summary: RECIPIENT-002 추천 대상 목록 조회
+      description: totalCount 는 현재 페이지가 아니라 전체 건수입니다.
       operationId: listRecipients
       x-uc-id: UC2
       x-req-id: REQ-F-002
@@ -201,15 +340,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RecipientListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/recipients/{recipientId}:
     parameters:
       - $ref: '#/components/parameters/RecipientId'
     get:
-      tags: [Recipients]
-      summary: 추천 대상 상세 조회
+      tags: [Recipient]
+      summary: RECIPIENT-003 추천 대상 상세 조회
       operationId: getRecipient
       x-uc-id: UC2
       x-req-id: REQ-F-002
@@ -221,13 +364,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Recipient'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     patch:
-      tags: [Recipients]
-      summary: 추천 대상 수정
+      tags: [Recipient]
+      summary: RECIPIENT-004 추천 대상 수정
+      description: 보낸 필드만 수정합니다. 최소 한 개 이상 보내야 합니다.
       operationId: updateRecipient
       x-uc-id: UC2
       x-req-id: REQ-F-002
@@ -247,13 +395,18 @@ paths:
                 $ref: '#/components/schemas/Recipient'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
-      tags: [Recipients]
-      summary: 추천 대상 삭제
+      tags: [Recipient]
+      summary: RECIPIENT-005 추천 대상 삭제
+      description: 대상의 취향·과거 선물·추천 조건과 그 하위 데이터가 함께 삭제됩니다.
       operationId: deleteRecipient
       x-uc-id: UC2
       x-req-id: REQ-F-002
@@ -261,18 +414,22 @@ paths:
       responses:
         '204':
           description: 삭제 성공
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/recipients/{recipientId}/preferences:
     parameters:
       - $ref: '#/components/parameters/RecipientId'
     post:
-      tags: [Preferences]
-      summary: 직접 입력 취향 등록
-      description: sourceType은 서버에서 DIRECT로 설정합니다.
+      tags: [Preference]
+      summary: PREF-001 직접 입력 취향 등록
+      description: sourceType 은 서버에서 DIRECT 로 설정합니다.
       operationId: createPreference
       x-uc-id: UC3
       x-req-id: REQ-F-003
@@ -292,13 +449,27 @@ paths:
                 $ref: '#/components/schemas/StructuredPreference'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          $ref: '#/components/responses/Conflict'
+          description: 같은 대상에 같은 (preferenceType, preferenceValue) 가 이미 있음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: RESOURCE_CONFLICT
+                message: 이미 등록된 취향입니다.
+                fieldErrors: []
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     get:
-      tags: [Preferences]
-      summary: 취향 목록 조회
+      tags: [Preference]
+      summary: PREF-003 취향 목록 조회
       operationId: listPreferences
       x-uc-id: UC3,UC6
       x-req-id: REQ-F-003,REQ-F-006
@@ -306,10 +477,12 @@ paths:
       parameters:
         - name: preferenceType
           in: query
+          required: false
           schema:
             $ref: '#/components/schemas/PreferenceType'
         - name: sourceType
           in: query
+          required: false
           schema:
             $ref: '#/components/schemas/SourceType'
       responses:
@@ -319,16 +492,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PreferenceListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/recipients/{recipientId}/preferences/bulk:
     parameters:
       - $ref: '#/components/parameters/RecipientId'
     post:
-      tags: [Preferences]
-      summary: 승인된 카카오 추출 취향 일괄 저장
-      description: 카카오 분석 검토 화면에서 승인한 항목만 저장하며 sourceType은 서버가 KAKAO로 설정합니다.
+      tags: [Preference]
+      summary: PREF-002 승인된 카카오 추출 취향 일괄 저장
+      description: |
+        카카오 분석 검토 화면에서 승인한 항목만 저장합니다.
+        sourceType 은 생략할 수 있고, 보낸다면 KAKAO 여야 합니다. 생략하면 서버가 KAKAO 로 설정합니다.
       operationId: createPreferencesBulk
       x-uc-id: UC6
       x-req-id: REQ-F-006
@@ -348,17 +531,23 @@ paths:
                 $ref: '#/components/schemas/PreferenceListResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/preferences/{preferenceId}:
     parameters:
       - $ref: '#/components/parameters/PreferenceId'
     patch:
-      tags: [Preferences]
-      summary: 취향 수정
+      tags: [Preference]
+      summary: PREF-004 취향 수정
       operationId: updatePreference
       x-uc-id: UC6
       x-req-id: REQ-F-006
@@ -378,15 +567,20 @@ paths:
                 $ref: '#/components/schemas/StructuredPreference'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
-      tags: [Preferences]
-      summary: 취향 삭제
+      tags: [Preference]
+      summary: PREF-005 취향 삭제
+      description: 저장된 취향은 항상 추천 콘텍스트에 포함되므로, 사용 중지는 삭제로 처리합니다.
       operationId: deletePreference
       x-uc-id: UC6
       x-req-id: REQ-F-006
@@ -394,18 +588,25 @@ paths:
       responses:
         '204':
           description: 삭제 성공
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/recipients/{recipientId}/kakao-analysis:
     parameters:
       - $ref: '#/components/parameters/RecipientId'
     post:
-      tags: [Kakao Analysis]
-      summary: 카카오톡 대화 파일 임시 분석
-      description: 원문은 분석 완료 또는 실패 후 폐기하며 DB에 저장하지 않습니다.
+      tags: [KakaoAnalysis]
+      summary: KAKAO-001 카카오톡 대화 파일 임시 분석
+      description: |
+        원문은 분석 완료 또는 실패 후 폐기하며 DB 에 저장하지 않습니다.
+        허용 확장자는 txt, csv 이고 최대 크기는 5MB 입니다.
+        응답 항목은 아직 저장되지 않은 후보이며 preferenceId 가 없습니다.
       operationId: analyzeKakaoConversation
       x-uc-id: UC4,UC5
       x-req-id: REQ-F-004,REQ-F-005
@@ -421,14 +622,20 @@ paths:
                 file:
                   type: string
                   format: binary
-                  description: 카카오톡 대화 내보내기 파일
+                  description: 카카오톡 대화 내보내기 파일 (txt, csv / 최대 5MB)
       responses:
         '200':
-          description: 분석 성공. 아직 DB에 저장되지 않은 후보입니다.
+          description: 분석 성공. 아직 DB 에 저장되지 않은 후보입니다.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/KakaoAnalysisResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '413':
@@ -437,13 +644,15 @@ paths:
           $ref: '#/components/responses/UnsupportedMediaType'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/recipients/{recipientId}/previous-gifts:
     parameters:
       - $ref: '#/components/parameters/RecipientId'
     post:
-      tags: [Previous Gifts]
-      summary: 과거 선물 등록
+      tags: [PreviousGift]
+      summary: PREVGIFT-001 과거 선물 등록
       operationId: createPreviousGift
       x-uc-id: UC11
       x-req-id: REQ-F-011
@@ -463,11 +672,17 @@ paths:
                 $ref: '#/components/schemas/PreviousGift'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     get:
-      tags: [Previous Gifts]
-      summary: 과거 선물 목록 조회
+      tags: [PreviousGift]
+      summary: PREVGIFT-002 과거 선물 목록 조회
       operationId: listPreviousGifts
       x-uc-id: UC11
       x-req-id: REQ-F-011
@@ -479,15 +694,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PreviousGiftListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/previous-gifts/{previousGiftId}:
     parameters:
       - $ref: '#/components/parameters/PreviousGiftId'
     patch:
-      tags: [Previous Gifts]
-      summary: 과거 선물 수정
+      tags: [PreviousGift]
+      summary: PREVGIFT-003 과거 선물 수정
       operationId: updatePreviousGift
       x-uc-id: UC11
       x-req-id: REQ-F-011
@@ -507,13 +728,17 @@ paths:
                 $ref: '#/components/schemas/PreviousGift'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
-      tags: [Previous Gifts]
-      summary: 과거 선물 삭제
+      tags: [PreviousGift]
+      summary: PREVGIFT-004 과거 선물 삭제
       operationId: deletePreviousGift
       x-uc-id: UC11
       x-req-id: REQ-F-011
@@ -521,17 +746,21 @@ paths:
       responses:
         '204':
           description: 삭제 성공
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/recipients/{recipientId}/gift-conditions:
     parameters:
       - $ref: '#/components/parameters/RecipientId'
     post:
-      tags: [Gift Conditions]
-      summary: 추천 조건 생성
+      tags: [GiftCondition]
+      summary: CONDITION-001 추천 조건 생성
       operationId: createGiftCondition
       x-uc-id: UC3
       x-req-id: REQ-F-003
@@ -551,15 +780,21 @@ paths:
                 $ref: '#/components/schemas/GiftCondition'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/gift-conditions/{conditionId}:
     parameters:
       - $ref: '#/components/parameters/ConditionId'
     get:
-      tags: [Gift Conditions]
-      summary: 추천 조건 조회
+      tags: [GiftCondition]
+      summary: CONDITION-002 추천 조건 조회
       operationId: getGiftCondition
       x-uc-id: UC3
       x-req-id: REQ-F-003
@@ -571,14 +806,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GiftCondition'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     patch:
-      tags: [Gift Conditions]
-      summary: 추천 조건 수정
-      description: 보낸 필드만 수정합니다. 추천 실행이 시작된 조건의 수정 허용 여부는 구현 정책으로 확정해야 합니다.
+      tags: [GiftCondition]
+      summary: CONDITION-003 추천 조건 수정
+      description: |
+        보낸 필드만 수정합니다. 최소 한 개 이상 보내야 합니다.
+        수정 결과 budgetMin 이 budgetMax 보다 크면 400 입니다.
+        추천 실행이 있는 조건도 현재는 수정할 수 있습니다.
       operationId: updateGiftCondition
       x-uc-id: UC3
       x-req-id: REQ-F-003
@@ -598,16 +840,18 @@ paths:
                 $ref: '#/components/schemas/GiftCondition'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
-      tags: [Gift Conditions]
-      summary: 추천 조건 삭제
-      description: 연결된 추천 실행이 있으면 오조작 방지를 위해 409를 반환합니다.
+      tags: [GiftCondition]
+      summary: CONDITION-004 추천 조건 삭제
+      description: 연결된 추천 실행이 있으면 오조작 방지를 위해 409 를 반환합니다.
       operationId: deleteGiftCondition
       x-uc-id: UC3
       x-req-id: REQ-F-003
@@ -615,48 +859,67 @@ paths:
       responses:
         '204':
           description: 삭제 성공
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          $ref: '#/components/responses/Conflict'
+          description: 추천 결과가 있는 조건
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: RESOURCE_CONFLICT
+                message: 추천 결과가 있는 조건은 삭제할 수 없습니다.
+                fieldErrors: []
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/gift-conditions/{conditionId}/recommendations:
     parameters:
       - $ref: '#/components/parameters/ConditionId'
     post:
-      tags: [Recommendations]
-      summary: AI 추천 요청
-      description: 비동기 실행을 생성하고 PROCESSING 상태를 반환합니다.
+      tags: [Recommendation]
+      summary: RECOMMEND-001 AI 추천 요청
+      description: |
+        요청 본문 없이 저장된 conditionId 의 조건을 사용합니다.
+        추천 실행과 후보를 한 트랜잭션으로 저장한 뒤 status=SUCCESS 인 결과를 201 로 즉시 반환합니다.
+        생성된 추천의 조회 URI 를 Location 헤더로 함께 내려줍니다.
+        후보를 만들지 못하면 실행 기록도 남기지 않고 422 로 롤백합니다.
       operationId: createRecommendation
       x-uc-id: UC7
       x-req-id: REQ-F-007
       x-screen-id: SCR-GIFT-001
-      parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '202':
-          description: 추천 요청 접수
+        '201':
+          description: 추천 생성 성공 (후보 포함)
           headers:
             Location:
-              description: 추천 상태 조회 URI
+              description: 추천 결과 조회 URI
               schema:
                 type: string
                 example: /api/v1/recommendations/10
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RecommendationAccepted'
+                $ref: '#/components/schemas/RecommendationDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     get:
-      tags: [Recommendations]
-      summary: 조건별 추천 실행 목록 조회
+      tags: [Recommendation]
+      summary: RECOMMEND-003 조건별 추천 실행 목록 조회
+      description: 생성일 역순입니다. 후보는 포함하지 않습니다.
       operationId: listRecommendations
       x-uc-id: UC8
       x-req-id: REQ-F-008
@@ -668,16 +931,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RecommendationListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/recommendations/{recommendationId}:
     parameters:
       - $ref: '#/components/parameters/RecommendationId'
     get:
-      tags: [Recommendations]
-      summary: AI 추천 상태·결과 조회
-      description: PROCESSING이면 candidates가 빈 배열이고, SUCCESS이면 후보를 반환합니다.
+      tags: [Recommendation]
+      summary: RECOMMEND-002 AI 추천 결과 조회
+      description: 저장된 추천 실행과 후보를 recommendRank 오름차순으로 조회합니다. 후보별 현재 피드백과 선택 상태가 함께 담깁니다.
       operationId: getRecommendation
       x-uc-id: UC8
       x-req-id: REQ-F-008
@@ -689,45 +958,81 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RecommendationDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/recommendations/{recommendationId}/re-recommend:
     parameters:
       - $ref: '#/components/parameters/RecommendationId'
     post:
-      tags: [Recommendations]
-      summary: 피드백 반영 재추천
-      description: 같은 conditionId로 새 recommendation을 만들고 previousRecommendationId에 직전 실행을 기록합니다.
+      tags: [Recommendation]
+      summary: RECOMMEND-004 피드백 반영 재추천
+      description: |
+        같은 conditionId 로 새 추천 실행과 후보를 생성해 201 로 즉시 반환하고
+        previousRecommendationId 에 직전 실행을 기록합니다.
+        직전 실행에서 DISLIKE 로 등록된 후보의 상품명·카테고리·사유가 AI 콘텍스트에 포함됩니다.
       operationId: createRerecommendation
       x-uc-id: UC10
       x-req-id: REQ-F-010
       x-screen-id: SCR-AI-002
-      parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '202':
-          description: 재추천 요청 접수
+        '201':
+          description: 재추천 생성 성공 (후보 포함)
+          headers:
+            Location:
+              description: 추천 결과 조회 URI
+              schema:
+                type: string
+                example: /api/v1/recommendations/11
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RecommendationAccepted'
+                $ref: '#/components/schemas/RecommendationDetail'
+              example:
+                recommendationId: 11
+                conditionId: 3
+                previousRecommendationId: 10
+                status: SUCCESS
+                createdAt: '2026-09-03T14:35:00+09:00'
+                updatedAt: '2026-09-03T14:35:00+09:00'
+                failure: null
+                candidates:
+                  - candidateId: 102
+                    giftName: 핸드드립 서버 세트
+                    giftCategory: HOME_CAFE
+                    estimatedPriceMin: 35000
+                    estimatedPriceMax: 55000
+                    recommendationReason: 기존 싫어요 피드백을 제외하고 홈카페 취향을 반영했습니다.
+                    consideredInfo: 홈카페, 생일, 싫어요 피드백
+                    cautionNote: 보유 중인 서버가 있는지 확인해 주세요.
+                    recommendRank: 1
+                    createdAt: '2026-09-03T14:35:00+09:00'
+                    selectedAt: null
+                    feedback: null
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/recommendation-candidates/{candidateId}/feedback:
     parameters:
       - $ref: '#/components/parameters/CandidateId'
     put:
       tags: [Feedback]
-      summary: 피드백 등록·변경
-      description: 후보당 현재 피드백 한 건을 upsert합니다.
+      summary: FEEDBACK-001 피드백 등록·변경
+      description: 후보당 현재 피드백 한 건을 upsert 합니다. LIKE 이면 dislikeReason 은 무시하고 null 로 저장합니다.
       operationId: upsertFeedback
       x-uc-id: UC9
       x-req-id: REQ-F-009
@@ -757,13 +1062,18 @@ paths:
                 $ref: '#/components/schemas/Feedback'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     get:
       tags: [Feedback]
-      summary: 피드백 조회
+      summary: FEEDBACK-002 피드백 조회
+      description: 등록된 피드백이 없으면 404 입니다.
       operationId: getFeedback
       x-uc-id: UC9
       x-req-id: REQ-F-009
@@ -775,13 +1085,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Feedback'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: 후보를 찾을 수 없거나 등록된 피드백이 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: RESOURCE_NOT_FOUND
+                message: 등록된 피드백이 없습니다.
+                fieldErrors: []
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
       tags: [Feedback]
-      summary: 피드백 취소
+      summary: FEEDBACK-003 피드백 취소
       operationId: deleteFeedback
       x-uc-id: UC9
       x-req-id: REQ-F-009
@@ -789,10 +1111,80 @@ paths:
       responses:
         '204':
           description: 취소 성공
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/recommendation-candidates/{candidateId}/selection:
+    parameters:
+      - $ref: '#/components/parameters/CandidateId'
+    put:
+      tags: [CandidateSelection]
+      summary: 최종 선물 선택
+      description: |
+        후보 하나를 최종 선물로 선택하고 selectedAt 을 기록합니다.
+        한 추천 실행 안에서는 최대 1건만 선택할 수 있어, 다른 후보를 선택하면 기존 선택은 자동으로 해제됩니다.
+        이미 선택된 후보를 다시 선택해도 성공하며 selectedAt 은 유지됩니다.
+      operationId: selectCandidate
+      x-screen-id: SCR-AI-001
+      responses:
+        '200':
+          description: 선택 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GiftCandidate'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags: [CandidateSelection]
+      summary: 선택 상태 조회
+      description: selectedAt 이 null 이면 선택되지 않은 후보입니다.
+      operationId: getCandidateSelection
+      x-screen-id: SCR-AI-001
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GiftCandidate'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags: [CandidateSelection]
+      summary: 최종 선물 선택 취소
+      description: 선택되지 않은 후보에 대해 호출해도 204 입니다.
+      operationId: deselectCandidate
+      x-screen-id: SCR-AI-001
+      responses:
+        '204':
+          description: 취소 성공
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
 components:
   securitySchemes:
@@ -856,15 +1248,6 @@ components:
         format: int64
         minimum: 1
       example: 101
-    IdempotencyKey:
-      name: Idempotency-Key
-      in: header
-      required: false
-      description: 동일 추천 요청의 중복 실행 방지용 UUID. 서버 지원 여부를 구현 전에 확정합니다.
-      schema:
-        type: string
-        format: uuid
-      example: 1a2709a2-e8c4-4a9b-a765-3e0406626974
     Page:
       name: page
       in: query
@@ -885,7 +1268,7 @@ components:
 
   responses:
     BadRequest:
-      description: 입력값 검증 실패
+      description: 입력값 검증 실패 또는 정의되지 않은 요청 필드
       content:
         application/json:
           schema:
@@ -937,17 +1320,25 @@ components:
             message: 현재 상태에서는 요청을 처리할 수 없습니다.
             fieldErrors: []
     PayloadTooLarge:
-      description: 업로드 파일 허용 크기 초과
+      description: 업로드 파일 허용 크기(5MB) 초과
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: PAYLOAD_TOO_LARGE
+            message: 허용 크기를 초과한 파일입니다.
+            fieldErrors: []
     UnsupportedMediaType:
-      description: 지원하지 않는 파일 형식
+      description: 지원하지 않는 파일 형식 (txt, csv 만 허용)
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: UNSUPPORTED_MEDIA_TYPE
+            message: 지원하지 않는 파일 형식입니다.
+            fieldErrors: []
     UnprocessableEntity:
       description: AI 분석 또는 추천 결과 처리 불가
       content:
@@ -958,10 +1349,21 @@ components:
             code: AI_RESULT_INVALID
             message: AI 결과를 구조화하지 못했습니다.
             fieldErrors: []
+    InternalServerError:
+      description: 서버 내부 오류
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: INTERNAL_ERROR
+            message: 서버 내부 오류가 발생했습니다.
+            fieldErrors: []
 
   schemas:
     User:
       type: object
+      x-db-table: users
       required: [userId, email, name, createdAt, updatedAt]
       properties:
         userId:
@@ -1016,10 +1418,11 @@ components:
       properties:
         email:
           type: string
-          format: email
+          minLength: 1
         password:
           type: string
           format: password
+          minLength: 1
 
     LoginResponse:
       type: object
@@ -1027,7 +1430,7 @@ components:
       properties:
         accessToken:
           type: string
-          description: JWT Access Token 예시이며 실제 비밀값이 아닙니다.
+          description: JWT Access Token
         tokenType:
           type: string
           enum: [Bearer]
@@ -1095,6 +1498,7 @@ components:
       type: object
       minProperties: 1
       additionalProperties: false
+      description: 보낸 필드만 수정합니다. 값을 보냈다면 공백일 수 없습니다.
       properties:
         name:
           type: string
@@ -1102,12 +1506,15 @@ components:
           maxLength: 100
         relationship:
           type: string
+          minLength: 1
           maxLength: 50
         ageGroup:
           type: string
+          minLength: 1
           maxLength: 30
         gender:
           type: string
+          minLength: 1
           maxLength: 20
         job:
           type: string
@@ -1116,6 +1523,7 @@ components:
 
     Recipient:
       type: object
+      x-db-table: recipient
       required: [recipientId, name, relationship, ageGroup, gender, createdAt, updatedAt]
       properties:
         recipientId:
@@ -1124,7 +1532,6 @@ components:
           readOnly: true
         name:
           type: string
-          minLength: 1
           maxLength: 100
         relationship:
           type: string
@@ -1167,7 +1574,9 @@ components:
             $ref: '#/components/schemas/Recipient'
         totalCount:
           type: integer
+          format: int64
           minimum: 0
+          description: 현재 페이지가 아니라 전체 건수
       example:
         items:
           - recipientId: 12
@@ -1218,7 +1627,14 @@ components:
       type: object
       required: [items]
       additionalProperties: false
+      description: |
+        sourceType 은 선택 필드입니다. 프론트와 Notion 명세서가 함께 보내므로 받아들이되,
+        이 API 는 카카오 분석 검토 결과 전용이라 KAKAO 만 허용하고 생략하면 서버가 KAKAO 로 설정합니다.
       properties:
+        sourceType:
+          allOf:
+            - $ref: '#/components/schemas/SourceType'
+          description: 생략 가능. 보낸다면 KAKAO 여야 합니다.
         items:
           type: array
           minItems: 1
@@ -1226,6 +1642,7 @@ components:
           items:
             $ref: '#/components/schemas/PreferenceCreateRequest'
       example:
+        sourceType: KAKAO
         items:
           - preferenceType: INTEREST
             preferenceValue: 홈카페
@@ -1234,6 +1651,7 @@ components:
 
     StructuredPreference:
       type: object
+      x-db-table: structured_preference
       required: [preferenceId, recipientId, preferenceType, preferenceValue, sourceType, createdAt, updatedAt]
       properties:
         preferenceId:
@@ -1246,6 +1664,7 @@ components:
           $ref: '#/components/schemas/PreferenceType'
         preferenceValue:
           type: string
+          maxLength: 255
         sourceType:
           $ref: '#/components/schemas/SourceType'
         createdAt:
@@ -1273,6 +1692,7 @@ components:
             $ref: '#/components/schemas/StructuredPreference'
         totalCount:
           type: integer
+          format: int64
           minimum: 0
       example:
         items:
@@ -1287,14 +1707,17 @@ components:
 
     KakaoAnalysisItem:
       type: object
+      description: 저장 전 상태라 preferenceId 가 없습니다.
       required: [preferenceType, preferenceValue]
       properties:
         preferenceType:
           $ref: '#/components/schemas/PreferenceType'
         preferenceValue:
           type: string
+
     KakaoAnalysisResponse:
       type: object
+      description: 저장 전 분석 결과라 totalCount 를 포함하지 않습니다.
       required: [items]
       properties:
         items:
@@ -1357,6 +1780,7 @@ components:
 
     PreviousGift:
       type: object
+      x-db-table: previous_gifts
       required: [previousGiftId, recipientId, giftName, createdAt, updatedAt]
       properties:
         previousGiftId:
@@ -1367,8 +1791,10 @@ components:
           format: int64
         giftName:
           type: string
+          maxLength: 255
         giftCategory:
           type: string
+          maxLength: 100
           nullable: true
         giftedAt:
           type: string
@@ -1403,6 +1829,7 @@ components:
             $ref: '#/components/schemas/PreviousGift'
         totalCount:
           type: integer
+          format: int64
           minimum: 0
       example:
         items:
@@ -1462,6 +1889,7 @@ components:
           minimum: 0
         occasionType:
           type: string
+          minLength: 1
           maxLength: 100
         occasionDate:
           type: string
@@ -1476,6 +1904,7 @@ components:
 
     GiftCondition:
       type: object
+      x-db-table: gift_conditions
       required: [conditionId, recipientId, budgetMin, budgetMax, occasionType, createdAt, updatedAt]
       properties:
         conditionId:
@@ -1523,10 +1952,16 @@ components:
 
     RecommendationStatus:
       type: string
+      description: |
+        추천 실행 상태. 동기 계약에서는 응답 시점에 항상 SUCCESS 입니다.
+        PROCESSING 은 실행 직후의 내부 초기 상태이고, 실패는 422 로 롤백되므로 FAILED 가 응답에 나오지 않습니다.
+        비동기 전환을 대비해 스키마에 유지합니다.
       enum: [PROCESSING, SUCCESS, FAILED]
 
-    RecommendationAccepted:
+    RecommendationSummary:
       type: object
+      x-db-table: recommendations
+      description: RECOMMEND-003 목록 항목. 후보를 포함하지 않습니다.
       required: [recommendationId, conditionId, status, createdAt, updatedAt]
       properties:
         recommendationId:
@@ -1551,12 +1986,9 @@ components:
         recommendationId: 10
         conditionId: 3
         previousRecommendationId: null
-        status: PROCESSING
+        status: SUCCESS
         createdAt: '2026-09-03T14:30:00+09:00'
         updatedAt: '2026-09-03T14:30:00+09:00'
-
-    RecommendationSummary:
-      $ref: '#/components/schemas/RecommendationAccepted'
 
     RecommendationListResponse:
       type: object
@@ -1568,13 +2000,14 @@ components:
             $ref: '#/components/schemas/RecommendationSummary'
         totalCount:
           type: integer
+          format: int64
           minimum: 0
       example:
         items:
           - recommendationId: 11
             conditionId: 3
             previousRecommendationId: 10
-            status: PROCESSING
+            status: SUCCESS
             createdAt: '2026-09-03T14:35:00+09:00'
             updatedAt: '2026-09-03T14:35:00+09:00'
           - recommendationId: 10
@@ -1587,45 +2020,78 @@ components:
 
     GiftCandidate:
       type: object
+      x-db-table: recommendation_candidates
+      description: |
+        AI 추천 후보. giftName / recommendationReason / recommendRank 는 항상 채워지고,
+        나머지 AI 출력 필드는 모델이 생략할 수 있어 null 을 허용합니다.
       required: [candidateId, giftName, recommendationReason, recommendRank, createdAt]
       properties:
         candidateId:
           type: integer
           format: int64
+          x-db-field: candidate_id
         giftName:
           type: string
+          minLength: 1
+          maxLength: 255
+          x-ai-output-field: true
+          x-db-field: gift_name
         giftCategory:
           type: string
+          maxLength: 100
           nullable: true
+          x-ai-output-field: true
+          x-db-field: gift_category
         estimatedPriceMin:
           type: integer
           minimum: 0
           nullable: true
+          x-ai-output-field: true
+          x-db-field: estimated_price_min
         estimatedPriceMax:
           type: integer
           minimum: 0
           nullable: true
+          x-ai-output-field: true
+          x-db-field: estimated_price_max
         recommendationReason:
           type: string
+          minLength: 1
+          x-ai-output-field: true
+          x-db-field: recommendation_reason
         consideredInfo:
           type: string
+          description: 추천 시점의 설명용 불변 스냅샷이며 정규화된 원본 데이터가 아닙니다. 검색·수정 기준으로 사용하지 않습니다.
           nullable: true
-          description: 추천 시점의 설명용 불변 스냅샷이며 정규화된 원본 데이터가 아닙니다.
+          x-ai-output-field: true
+          x-db-field: considered_info
         cautionNote:
           type: string
           nullable: true
+          x-ai-output-field: true
+          x-db-field: caution_note
         recommendRank:
           type: integer
           minimum: 1
-          description: 동일 추천 결과 안에서 후보를 노출하는 추천 순위입니다. 1부터 시작합니다.
+          description: 동일 추천 실행 안에서 후보를 노출하는 순위입니다. 1부터 시작합니다.
+          x-ai-output-field: true
+          x-db-field: recommend_rank
         createdAt:
           type: string
           format: date-time
+          x-db-field: created_at
+        selectedAt:
+          type: string
+          format: date-time
+          description: 최종 선물로 선택한 시각. 선택하지 않았으면 null 이며 한 추천 실행 안에서 최대 1건만 값을 가집니다.
+          nullable: true
+          x-db-field: selected_at
         feedback:
           type: object
+          description: 후보에 등록된 현재 피드백. 없으면 null 입니다.
+          nullable: true
           allOf:
             - $ref: '#/components/schemas/Feedback'
-          nullable: true
       example:
         candidateId: 101
         giftName: 커피 드립 세트
@@ -1637,15 +2103,18 @@ components:
         cautionNote: 이미 보유한 드립 도구가 있는지 확인해 주세요.
         recommendRank: 1
         createdAt: '2026-09-03T14:30:10+09:00'
+        selectedAt: null
         feedback:
           feedbackId: 51
           candidateId: 101
           feedbackType: LIKE
+          dislikeReason: null
           createdAt: '2026-09-03T14:32:00+09:00'
           updatedAt: '2026-09-03T14:32:00+09:00'
 
     RecommendationFailure:
       type: object
+      description: status = FAILED 일 때만 채워집니다. code 는 ErrorResponse 와 같은 체계를 씁니다.
       required: [code, message]
       properties:
         code:
@@ -1659,6 +2128,7 @@ components:
 
     RecommendationDetail:
       type: object
+      x-db-table: recommendations
       required: [recommendationId, conditionId, status, createdAt, updatedAt, candidates]
       properties:
         recommendationId:
@@ -1681,11 +2151,13 @@ components:
           format: date-time
         failure:
           type: object
+          description: status = FAILED 일 때만 채워지고, 그 외에는 null 입니다.
+          nullable: true
           allOf:
             - $ref: '#/components/schemas/RecommendationFailure'
-          nullable: true
         candidates:
           type: array
+          description: recommendRank 오름차순입니다.
           items:
             $ref: '#/components/schemas/GiftCandidate'
       example:
@@ -1695,6 +2167,7 @@ components:
         status: SUCCESS
         createdAt: '2026-09-03T14:30:00+09:00'
         updatedAt: '2026-09-03T14:30:07+09:00'
+        failure: null
         candidates:
           - candidateId: 101
             giftName: 커피 드립 세트
@@ -1706,19 +2179,25 @@ components:
             cautionNote: 이미 보유한 드립 도구가 있는지 확인해 주세요.
             recommendRank: 1
             createdAt: '2026-09-03T14:30:10+09:00'
+            selectedAt: null
+            feedback: null
 
     FeedbackType:
       type: string
       enum: [LIKE, DISLIKE]
+
     FeedbackUpsertRequest:
       type: object
       required: [feedbackType]
       additionalProperties: false
+      description: LIKE 이면 dislikeReason 을 무시하고 null 로 저장합니다. DISLIKE 이면 선택적으로 입력합니다.
       properties:
         feedbackType:
           $ref: '#/components/schemas/FeedbackType'
         dislikeReason:
           type: string
+          nullable: true
+          description: 프론트는 자유 입력 없이 이 8개 코드만 전송합니다. 값이 없으면 null 입니다.
           enum:
             - TASTE_MISMATCH
             - ALREADY_OWNED
@@ -1728,11 +2207,11 @@ components:
             - PRICE_INAPPROPRIATE
             - WANT_DIFFERENT_STYLE
             - OTHER
-          nullable: true
-      description: LIKE이면 dislikeReason은 null이어야 하며 DISLIKE이면 선택적으로 입력합니다.
+            - null
 
     Feedback:
       type: object
+      x-db-table: feedback
       required: [feedbackId, candidateId, feedbackType, createdAt, updatedAt]
       properties:
         feedbackId:
@@ -1745,6 +2224,8 @@ components:
           $ref: '#/components/schemas/FeedbackType'
         dislikeReason:
           type: string
+          nullable: true
+          description: 프론트는 자유 입력 없이 이 8개 코드만 전송합니다. 값이 없으면 null 입니다.
           enum:
             - TASTE_MISMATCH
             - ALREADY_OWNED
@@ -1754,7 +2235,7 @@ components:
             - PRICE_INAPPROPRIATE
             - WANT_DIFFERENT_STYLE
             - OTHER
-          nullable: true
+            - null
         createdAt:
           type: string
           format: date-time
@@ -1784,6 +2265,7 @@ components:
       properties:
         code:
           type: string
+          description: com.skala.ikgeoljune.common.ErrorCode 의 enum 이름
         message:
           type: string
         fieldErrors:

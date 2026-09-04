@@ -1,11 +1,17 @@
 // 이걸주네? AI 맞춤형 선물 추천 서비스
 // PostgreSQL / MVP 8-table schema
-// 기준: 2026-09-03 최신 DB 설계 및 일반 이메일 로그인 확정
+//
+// 기준: src/main/resources/db/migration 의 V1__init.sql + V2__add_candidate_selection.sql
+// 이 파일과 마이그레이션이 어긋나면 마이그레이션이 진실이다. 이 파일을 먼저 고친다.
+//
+// 제출 가이드 추적 기준: UC/REQ → 화면 → API → DB 양방향 연결
+// 핵심 흐름: 대상 등록 → 추천 조건 입력 → AI 추천 → 결과 조회 → 피드백 → 재추천 → 최종 선물 선택
+// 명명 규칙: DB 는 snake_case, API/AI 는 camelCase 를 사용하며 각 AI 결과 컬럼 Note 에 대응 필드를 명시
 
 Table users {
   user_id bigint [pk, increment]
   email varchar(255) [not null, unique, note: '로그인 식별자. 소문자 정규화 후 저장']
-  password_hash varchar(255) [not null, note: '평문 저장 금지. BCrypt 또는 Argon2 해시']
+  password_hash varchar(255) [not null, note: '평문 저장 금지. BCrypt 해시']
   name varchar(100) [not null]
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
@@ -15,7 +21,7 @@ Table users {
     `char_length(btrim(name)) > 0` [name: 'chk_users_name_not_blank']
   }
 
-  Note: 'UC1 / REQ-F-001. 일반 이메일 회원가입·로그인 사용자'
+  Note: 'SCR-AUTH-001·SCR-AUTH-002 / UC1 / REQ-F-001. 일반 이메일 회원가입·로그인 사용자'
 }
 
 Table recipient {
@@ -37,7 +43,7 @@ Table recipient {
     `char_length(btrim(name)) > 0` [name: 'chk_recipient_name_not_blank']
   }
 
-  Note: 'UC2 / REQ-F-002. 사용자가 직접 관리하는 비공개 선물 대상'
+  Note: 'SCR-RECIPIENT-001 / UC2 / REQ-F-002. 사용자가 직접 관리하는 비공개 선물 대상'
 }
 
 Table structured_preference {
@@ -54,14 +60,13 @@ Table structured_preference {
     (recipient_id, preference_type, preference_value) [unique, name: 'uq_recipient_preference']
   }
 
-
   checks {
     `preference_type in ('INTEREST', 'PREFERRED_CATEGORY', 'PREFERRED_ATTRIBUTE', 'DISLIKED_CATEGORY', 'WISH_ITEM')` [name: 'chk_preference_type']
     `source_type in ('DIRECT', 'KAKAO')` [name: 'chk_preference_source']
     `char_length(btrim(preference_value)) > 0` [name: 'chk_preference_value_not_blank']
   }
 
-  Note: 'UC3·UC5·UC6·UC7 / REQ-F-003·005·006·007. 직접 입력 또는 카카오 분석 후 사용자가 승인한 취향만 저장'
+  Note: 'SCR-GIFT-001·SCR-KAKAO-002 / UC3·UC5·UC6·UC7 / REQ-F-003·005·006·007. 직접 입력 또는 카카오 분석 후 사용자가 승인한 취향만 저장. 저장된 취향은 항상 추천 콘텍스트에 포함되며 사용 중지는 삭제로 처리한다(활성 플래그 없음)'
 }
 
 Table previous_gifts {
@@ -78,12 +83,11 @@ Table previous_gifts {
     recipient_id [name: 'idx_previous_gifts_recipient_id']
   }
 
-
   checks {
     `char_length(btrim(gift_name)) > 0` [name: 'chk_previous_gift_name_not_blank']
   }
 
-  Note: 'UC11 / REQ-F-011. 대상에게 과거에 준 선물. 추천 후보 선택 이력과는 별개'
+  Note: 'SCR-HISTORY-001·SCR-GIFT-001 / UC7·UC11 / REQ-F-007·011. 대상에게 과거에 준 선물이며 AI 추천에서 중복 후보 제외 정보로 사용. 추천 후보 선택 이력(recommendation_candidates.selected_at)과는 별개'
 }
 
 Table gift_conditions {
@@ -108,16 +112,16 @@ Table gift_conditions {
     `char_length(btrim(occasion_type)) > 0` [name: 'chk_gift_conditions_occasion_not_blank']
   }
 
-  Note: 'UC3·UC7 / REQ-F-003·007. 추천 당시 사용자가 입력한 상황별 조건'
+  Note: 'SCR-GIFT-001 / UC3·UC7 / REQ-F-003·007. 추천 당시 사용자가 입력한 상황별 조건. 연결된 추천 실행이 있으면 삭제를 거부한다(API 409)'
 }
 
 Table recommendations {
   recommendation_id bigint [pk, increment]
   condition_id bigint [not null]
   previous_recommendation_id bigint [note: '재추천이면 직전 recommendation_id, 최초 추천이면 NULL']
-  status varchar(20) [not null, note: 'PROCESSING, SUCCESS, FAILED']
-  failure_code varchar(50) [note: 'FAILED 상태의 기계 판독용 코드']
-  failure_message text [note: 'FAILED 상태의 사용자 안내용 메시지']
+  status varchar(20) [not null, note: 'API/AI status. PROCESSING, SUCCESS, FAILED. MVP 동기 계약에서는 저장 직후 SUCCESS 로 바뀌므로 응답에는 SUCCESS 만 나온다']
+  failure_code varchar(50) [note: 'API/AI failure.code. FAILED 상태의 기계 판독용 코드이며 ErrorCode 와 같은 체계를 쓴다']
+  failure_message text [note: 'API/AI failure.message. FAILED 상태의 사용자 안내용 메시지']
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
 
@@ -126,7 +130,6 @@ Table recommendations {
     previous_recommendation_id [name: 'idx_recommendations_previous_id']
   }
 
-
   checks {
     `status in ('PROCESSING', 'SUCCESS', 'FAILED')` [name: 'chk_recommendation_status']
     `previous_recommendation_id is null or previous_recommendation_id <> recommendation_id` [name: 'chk_recommendation_not_self']
@@ -134,25 +137,30 @@ Table recommendations {
     `status <> 'FAILED' or failure_message is not null` [name: 'chk_recommendation_failure_message']
   }
 
-  Note: 'UC7·UC8·UC10 / REQ-F-007·008·010. 조건과 분리된 AI 실행 기록. 이전 추천 연결은 같은 condition_id 안에서만 허용하고 순환 참조를 금지'
+  Note: 'SCR-GIFT-001·SCR-AI-001·SCR-AI-002 / UC7·UC8·UC10 / REQ-F-007·008·010. 조건과 분리된 AI 실행 기록. 추천과 후보를 한 트랜잭션으로 저장한 뒤 즉시 반환하며, AI 실패 시 실행 기록까지 전체 롤백하고 422 로 응답한다. status 컬럼은 실제 LLM 연동 시 비동기 + 폴링으로 전환할 자리다. 이전 추천 연결은 같은 condition_id 안에서만 허용하고 순환 참조를 금지'
 }
 
 Table recommendation_candidates {
   candidate_id bigint [pk, increment]
   recommendation_id bigint [not null]
-  gift_name varchar(255) [not null]
-  gift_category varchar(100)
-  estimated_price_min integer
-  estimated_price_max integer
-  recommendation_reason text [not null]
-  considered_info text [note: '조회 편의용 불변 설명 스냅샷. 정규화된 원본 데이터나 검색 조건으로 사용하지 않음']
-  caution_note text
-  recommend_rank integer [not null, note: '동일 추천 결과 내 추천 순위. 1부터 시작']
+  gift_name varchar(255) [not null, note: 'API/AI giftName']
+  gift_category varchar(100) [note: 'API/AI giftCategory. AI 가 생략할 수 있어 NULL 허용']
+  estimated_price_min integer [note: 'API/AI estimatedPriceMin. AI 가 생략할 수 있어 NULL 허용']
+  estimated_price_max integer [note: 'API/AI estimatedPriceMax. AI 가 생략할 수 있어 NULL 허용']
+  recommendation_reason text [not null, note: 'API/AI recommendationReason']
+  considered_info text [note: 'API/AI consideredInfo. 조회 편의용 불변 설명 스냅샷이며 검색·수정 기준으로 사용하지 않음']
+  caution_note text [note: 'API/AI cautionNote']
+  recommend_rank integer [not null, note: 'API/AI recommendRank. 동일 추천 실행 내 순위이며 1부터 시작']
+  selected_at timestamptz [note: 'API selectedAt. 최종 선물로 선택한 시각. 미선택이면 NULL (V2__add_candidate_selection.sql)']
   created_at timestamptz [not null, default: `now()`]
 
   indexes {
     recommendation_id [name: 'idx_candidates_recommendation_id']
     (recommendation_id, recommend_rank) [unique, name: 'uq_candidate_recommend_rank']
+    // uq_candidate_selected_per_recommendation 은 조건부 유니크 인덱스라 dbml 로 표현할 수 없다.
+    //   CREATE UNIQUE INDEX uq_candidate_selected_per_recommendation
+    //       ON recommendation_candidates (recommendation_id) WHERE selected_at IS NOT NULL;
+    // 여기에 일반 unique 로 적으면 "추천당 후보 1건" 이라는 잘못된 제약이 생성되므로 적지 않는다.
   }
 
   checks {
@@ -162,14 +170,14 @@ Table recommendation_candidates {
     `char_length(btrim(gift_name)) > 0` [name: 'chk_candidate_name_not_blank']
   }
 
-  Note: 'UC8·UC9·UC10 / REQ-F-008·009·010. 한 번의 추천 실행에서 생성된 여러 선물 후보'
+  Note: 'SCR-AI-001·SCR-AI-002 / UC8·UC9·UC10 / REQ-F-008·009·010. 한 번의 추천 실행에서 생성된 여러 선물 후보(기본 5건). selected_at 은 최종 선물 선택용이며, 한 추천 실행 안에서 선택된 후보가 최대 1건이라는 보장은 조건부 유니크 인덱스 uq_candidate_selected_per_recommendation (WHERE selected_at IS NOT NULL) 이 담당한다'
 }
 
 Table feedback {
   feedback_id bigint [pk, increment]
   candidate_id bigint [not null, unique]
   feedback_type varchar(20) [not null, note: 'LIKE, DISLIKE']
-  dislike_reason varchar(255) [note: 'TASTE_MISMATCH, ALREADY_OWNED, SIMILAR_TO_PREVIOUS, TOO_BURDENSOME, NOT_PRACTICAL, PRICE_INAPPROPRIATE, WANT_DIFFERENT_STYLE, OTHER']
+  dislike_reason varchar(255) [note: 'TASTE_MISMATCH, ALREADY_OWNED, SIMILAR_TO_PREVIOUS, TOO_BURDENSOME, NOT_PRACTICAL, PRICE_INAPPROPRIATE, WANT_DIFFERENT_STYLE, OTHER. 자유 입력은 MVP 범위 밖이며 필요해지면 comment 컬럼을 새로 추가한다']
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
 
@@ -179,7 +187,7 @@ Table feedback {
     `(feedback_type = 'LIKE' AND dislike_reason IS NULL) OR feedback_type = 'DISLIKE'` [name: 'chk_feedback_reason']
   }
 
-  Note: 'UC9·UC10 / REQ-F-009·010. 후보별 현재 피드백 0..1건. 변경 시 새 행 추가가 아니라 upsert'
+  Note: 'SCR-AI-001·SCR-AI-002 / UC9·UC10 / REQ-F-009·010. 후보별 현재 피드백 0..1건. 변경 시 새 행 추가가 아니라 upsert. 재추천은 직전 실행의 DISLIKE 후보를 AI 콘텍스트에 전달한다'
 }
 
 Ref: users.user_id < recipient.user_id [delete: cascade, update: no action]

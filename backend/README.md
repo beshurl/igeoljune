@@ -98,7 +98,7 @@ psql -d postgres -c "CREATE DATABASE ikgeoljune OWNER ikgeoljune;"
 | `JWT_EXPIRES_IN` | 3600 | access token 만료(초). AUTH-002 의 `expiresIn` 과 같은 값 |
 | `CORS_ALLOWED_ORIGINS` | localhost:5173, localhost:3000 | 프론트 개발 서버 |
 | `AI_PROVIDER` | mock | AI 구현 선택 |
-| `AI_MOCK_LATENCY_MS` | 800 | Mock AI 가 흉내내는 처리 지연 |
+| `SERVER_PORT` | 8080 | 애플리케이션 포트 |
 
 Swagger UI: http://localhost:8080/swagger-ui.html
 
@@ -122,7 +122,9 @@ com.skala.ikgeoljune
 ## 계약 문서 대응
 
 구현 기준은 **`DB.dbml`(스키마)** 과 **`API.yml`(REST 계약)** 두 파일이며,
-`docs/contract/` 에서 함께 버전 관리한다. 어긋나는 항목과 갱신 필요 사항은 `docs/contract/README.md` 참고.
+`docs/contract/` 에서 함께 버전 관리한다. 두 파일은 현재 구현과 일치하며,
+문서 검증 명령과 dbml 로 표현할 수 없는 제약은 [`docs/contract/README.md`](docs/contract/README.md) 참고.
+문서와 코드가 어긋나면 코드가 진실이다. 코드를 문서에 맞추지 말고 문서를 먼저 고친다.
 
 실제 LLM 으로 넘어갈 때의 단계별 계획은 [`docs/roadmap/ai-integration.md`](docs/roadmap/ai-integration.md) 에 있다.
 
