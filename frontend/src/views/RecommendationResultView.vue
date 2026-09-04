@@ -512,22 +512,21 @@ function goReRecommend() {
   margin-top: 2px;
 }
 .cand__fbState {
-  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 .cand__acts {
   display: flex;
   gap: 8px;
   margin-top: auto;
-  padding-top: 6px;
 }
 .cand__acts .btn {
   flex: 1;
 }
 .cand__acts .material-symbols-outlined {
   font-size: 15px;
-}
-.cand__select {
-  margin-top: 8px;
 }
 .cand__select .material-symbols-outlined {
   font-size: 15px;
