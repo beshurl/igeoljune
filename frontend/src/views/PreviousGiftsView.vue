@@ -79,7 +79,6 @@ async function remove(g) {
   <div>
     <AppNav />
     <div class="screen screen--narrow">
-      <p class="page-eyebrow">SCR-HISTORY-001 · UC11 · REQ-F-011</p>
       <h1 class="page-title">과거 선물 관리</h1>
       <p class="page-desc">
         <template v-if="recipient">

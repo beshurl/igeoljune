@@ -83,11 +83,7 @@ async function submit() {
 
     <div class="card card--pad auth">
       <div class="auth__brand">
-        <span class="auth__mark">🎁</span>
-        <div>
-          <div class="auth__name">이걸주네?</div>
-          <div class="auth__tag">AI 맞춤 선물 추천</div>
-        </div>
+        <img class="auth__logo" src="/logo.png" alt="이걸주네? · AI 맞춤 선물 추천" />
       </div>
 
       <h1 class="auth__h">{{ isSignup ? "회원가입" : "로그인" }}</h1>
@@ -183,32 +179,12 @@ async function submit() {
   z-index: 1;
 }
 .auth__brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
+  margin-bottom: 20px;
 }
-.auth__mark {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  background: var(--primary-soft);
-  display: grid;
-  place-items: center;
-  font-size: 22px;
-  box-shadow: 0 2px 10px rgba(255, 122, 0, 0.22);
-}
-.auth__name {
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-.auth__tag {
-  font-family: var(--font-label);
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--primary);
-  letter-spacing: 0.04em;
+.auth__logo {
+  height: 42px;
+  width: auto;
+  display: block;
 }
 .auth__h {
   font-size: 22px;

@@ -26,12 +26,8 @@ function logout() {
 <template>
   <header class="nav">
     <div class="nav__inner">
-      <button class="brand" @click="goHome">
-        <span class="brand__mark">🎁</span>
-        <span class="brand__text">
-          <span class="brand__name">이걸주네?</span>
-          <span class="brand__tag">AI 맞춤 선물 추천</span>
-        </span>
+      <button class="brand" @click="goHome" aria-label="이걸주네? 홈">
+        <img class="brand__logo" src="/logo.png" alt="이걸주네? · AI 맞춤 선물 추천" />
       </button>
 
       <template v-if="auth.isLoggedIn">
@@ -76,38 +72,15 @@ function logout() {
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
   background: none;
   border: 0;
   cursor: pointer;
   padding: 0;
 }
-.brand__mark {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  background: var(--primary-soft);
-  display: grid;
-  place-items: center;
-  font-size: 18px;
-  box-shadow: 0 2px 8px rgba(255, 122, 0, 0.2);
-}
-.brand__text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.15;
-  text-align: left;
-}
-.brand__name {
-  font-size: 17px;
-  font-weight: 800;
-}
-.brand__tag {
-  font-family: var(--font-label);
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--primary);
-  letter-spacing: 0.04em;
+.brand__logo {
+  height: 32px;
+  width: auto;
+  display: block;
 }
 .nav__links {
   display: flex;
@@ -172,9 +145,11 @@ function logout() {
     gap: 12px;
     padding: 0 16px;
   }
-  .brand__tag,
   .nav__uname {
     display: none;
+  }
+  .brand__logo {
+    height: 26px;
   }
   .nav__link {
     padding: 8px 10px;
