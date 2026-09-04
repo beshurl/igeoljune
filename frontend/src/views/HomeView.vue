@@ -112,13 +112,14 @@ const compare = [
       </div>
     </section>
 
-    <section class="cta">
-      <span class="cta__bot">🎁</span>
-      <div>
-        <strong class="cta__title">이제 고마운 마음을 온전히 전하는 데만 집중하세요</strong>
-        <p class="muted">소중한 사람에게 딱 맞는 선물, 불필요한 개인정보 유출 없이 지금 시작해 보세요.</p>
+    <section class="block cta-block">
+      <div class="cta">
+        <div>
+          <strong class="cta__title">이제 고마운 마음을 온전히 전하는 데만 집중하세요</strong>
+          <p class="muted">소중한 사람에게 딱 맞는 선물, 불필요한 개인정보 유출 없이 지금 시작해 보세요.</p>
+        </div>
+        <button class="btn btn--primary btn--lg" @click="start">무료로 시작하기</button>
       </div>
-      <button class="btn btn--primary btn--lg" @click="start">무료로 시작하기</button>
     </section>
 
     <footer class="hfoot">
@@ -291,19 +292,18 @@ const compare = [
   font-family: var(--font-label);
   font-weight: 700;
 }
+.cta-block {
+  padding-top: 56px;
+  padding-bottom: 40px;
+}
 .cta {
-  max-width: 1200px;
-  margin: 56px auto 40px;
-  padding: 32px;
+  padding: 28px 32px;
   display: flex;
   align-items: center;
   gap: 20px;
   background: var(--primary-soft);
   border: 1px solid var(--primary-border);
   border-radius: var(--radius-xl);
-}
-.cta__bot {
-  font-size: 44px;
 }
 .cta__title {
   font-size: 18px;
