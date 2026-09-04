@@ -53,7 +53,6 @@ async function start() {
   <div>
     <AppNav />
     <div class="screen screen--narrow">
-      <p class="page-eyebrow">SCR-KAKAO-001 · UC4 · UC5</p>
       <h1 class="page-title">카카오톡 대화 파일 분석</h1>
       <p class="page-desc">
         대화 내보내기 텍스트 파일(.txt)에서 일상적 관심사, 인테리어 언급, 위시리스트 신호만 선별 추출합니다.

@@ -109,7 +109,6 @@ function openHistory(r) {
   <div>
     <AppNav />
     <div class="screen">
-      <p class="page-eyebrow">SCR-RECIPIENT-001 · UC2</p>
       <div class="head">
         <div>
           <h1 class="page-title">선물 대상 관리</h1>

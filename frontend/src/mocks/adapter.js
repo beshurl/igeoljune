@@ -46,7 +46,7 @@ function makeCandidates() {
   return [
     {
       candidateId: nextId(),
-      giftName: "홈카페 드립 세트",
+      giftName: "핸드드립 커피 세트",
       giftCategory: "HOME_CAFE",
       estimatedPriceMin: 45000,
       estimatedPriceMax: 55000,
@@ -60,7 +60,7 @@ function makeCandidates() {
     },
     {
       candidateId: nextId(),
-      giftName: "스페셜티 원두 구독권",
+      giftName: "스페셜티 원두 구독권 3개월",
       giftCategory: "HOME_CAFE",
       estimatedPriceMin: 28000,
       estimatedPriceMax: 35000,
@@ -74,7 +74,7 @@ function makeCandidates() {
     },
     {
       candidateId: nextId(),
-      giftName: "미니멀 커피잔 세트",
+      giftName: "아로마 디퓨저 세트",
       giftCategory: "LIVING",
       estimatedPriceMin: 42000,
       estimatedPriceMax: 50000,
