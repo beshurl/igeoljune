@@ -115,7 +115,6 @@ async function submit() {
   <div>
     <AppNav />
     <div class="screen screen--narrow">
-      <p class="page-eyebrow">SCR-GIFT-001 · UC3 · STEP 02</p>
       <h1 class="page-title">맞춤 추천 설계</h1>
       <p class="page-desc">예산과 상황, 취향을 입력하면 AI가 조건을 종합해 선물 후보와 추천 이유를 제공합니다.</p>
 

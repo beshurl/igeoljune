@@ -64,7 +64,6 @@ async function save() {
   <div>
     <AppNav />
     <div class="screen screen--narrow">
-      <p class="page-eyebrow">SCR-KAKAO-002 · UC6</p>
       <div class="row-between">
         <h1 class="page-title">추출된 취향 단서 검토</h1>
         <span class="pill pill--accent">{{ approvedCount }}건 승인됨</span>
